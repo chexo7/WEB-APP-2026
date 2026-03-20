@@ -172,7 +172,7 @@ code {
 
 .section-heading {
   display: flex;
-  align-items: end;
+  align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
   margin-bottom: 1.5rem;
@@ -249,7 +249,7 @@ code {
   }
 
   .section-heading {
-    align-items: start;
+    align-items: flex-start;
     flex-direction: column;
   }
 }
