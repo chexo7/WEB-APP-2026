@@ -90,7 +90,10 @@ select {
 
 .login-form input,
 .entry-form input,
-.entry-form select {
+.entry-form select,
+.history-control select,
+.editor-row input,
+.editor-row select {
   width: 100%;
   padding: 0.95rem 1rem;
   border-radius: 16px;
@@ -145,6 +148,12 @@ select {
   font-size: 0.95rem;
 }
 
+.success-text {
+  margin: 0;
+  color: #067647;
+  font-size: 0.95rem;
+}
+
 .muted-text {
   margin: 0;
   color: var(--muted);
@@ -174,8 +183,17 @@ select {
 
 .topbar-actions {
   display: flex;
-  align-items: start;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.history-control {
+  display: grid;
+  gap: 0.45rem;
+  min-width: 260px;
+  font-size: 0.95rem;
+  font-weight: 700;
 }
 
 .user-chip {
@@ -222,15 +240,19 @@ select {
   color: var(--muted);
 }
 
-.snapshot-list,
-.entry-list {
+.button-row,
+.editor-list {
   display: grid;
   gap: 0.75rem;
 }
 
-.entry-row {
-  display: flex;
-  justify-content: space-between;
+.button-row {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.editor-row {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) 180px 120px;
   gap: 1rem;
   padding: 1rem;
   border-radius: 20px;
@@ -238,19 +260,9 @@ select {
   background: #fffdfa;
 }
 
-.entry-row strong {
-  display: block;
-}
-
-.entry-row p {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
-}
-
-.entry-actions {
+.loading-card {
   display: grid;
-  justify-items: end;
-  gap: 0.65rem;
+  gap: 0.75rem;
 }
 
 .type-pill {
@@ -281,18 +293,18 @@ select {
   .topbar,
   .summary-grid,
   .workspace-grid,
-  .entry-row {
+  .editor-row,
+  .button-row {
     grid-template-columns: 1fr;
   }
 
   .topbar,
   .topbar-actions,
-  .entry-row {
+  .editor-row {
     display: grid;
   }
 
-  .topbar-actions,
-  .entry-actions {
+  .topbar-actions {
     justify-items: stretch;
   }
 

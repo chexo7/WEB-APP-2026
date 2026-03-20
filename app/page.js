@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
-import { get, onValue, push, ref, remove, set, update } from "firebase/database";
+import { get, onValue, push, ref, set, update } from "firebase/database";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 
 const defaultCredentials = {
@@ -10,7 +10,7 @@ const defaultCredentials = {
   password: "",
 };
 
-const defaultEntry = {
+const defaultNewEntry = {
   type: "expense",
   description: "",
   amount: "",
@@ -21,9 +21,11 @@ export default function HomePage() {
   const [authState, setAuthState] = useState("checking");
   const [authError, setAuthError] = useState("");
   const [user, setUser] = useState(null);
-  const [entryForm, setEntryForm] = useState(defaultEntry);
-  const [snapshots, setSnapshots] = useState({});
-  const [activeDate, setActiveDate] = useState("");
+  const [snapshotTree, setSnapshotTree] = useState({});
+  const [selectedVersionKey, setSelectedVersionKey] = useState("");
+  const [loadedVersionKey, setLoadedVersionKey] = useState("");
+  const [draftEntries, setDraftEntries] = useState({});
+  const [newEntry, setNewEntry] = useState(defaultNewEntry);
   const [isInitializing, setIsInitializing] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [dataError, setDataError] = useState("");
@@ -40,8 +42,10 @@ export default function HomePage() {
 
   useEffect(() => {
     if (!user?.uid) {
-      setSnapshots({});
-      setActiveDate("");
+      setSnapshotTree({});
+      setSelectedVersionKey("");
+      setLoadedVersionKey("");
+      setDraftEntries({});
       setIsInitializing(false);
       return;
     }
@@ -62,15 +66,38 @@ export default function HomePage() {
         } else {
           const currentData = userSnapshot.val() ?? {};
           const patch = {};
+          const existingSnapshots = currentData.cashflowSnapshots ?? {};
 
           if (!currentData.profile) {
             patch.profile = createUserProfile(user);
           }
 
-          if (!currentData.cashflowSnapshots || !Object.keys(currentData.cashflowSnapshots).length) {
-            patch.cashflowSnapshots = {
-              [today]: createEmptySnapshot(today),
-            };
+          if (!Object.keys(existingSnapshots).length) {
+            patch[`cashflowSnapshots/${today}`] = createSnapshotContainer(user, today, {});
+          }
+
+          for (const [snapshotDate, snapshotValue] of Object.entries(existingSnapshots)) {
+            if (!snapshotValue?.versions) {
+              patch[`cashflowSnapshots/${snapshotDate}`] = createSnapshotContainer(
+                user,
+                snapshotDate,
+                snapshotValue?.entries ?? {},
+                snapshotValue?.createdAt,
+              );
+            } else if (!Object.keys(snapshotValue.versions).length) {
+              const versionRef = ref(
+                database,
+                `users/${user.uid}/cashflowSnapshots/${snapshotDate}/versions`,
+              );
+              const versionId = push(versionRef).key;
+
+              patch[`cashflowSnapshots/${snapshotDate}/versions/${versionId}`] = createSnapshotVersion({
+                snapshotDate,
+                entries: {},
+                user,
+                savedAt: Date.now(),
+              });
+            }
           }
 
           if (Object.keys(patch).length) {
@@ -106,12 +133,7 @@ export default function HomePage() {
     return onValue(
       snapshotsRef,
       (snapshot) => {
-        const nextSnapshots = snapshot.val() ?? {};
-        const dates = Object.keys(nextSnapshots).sort();
-        const latestDate = dates[dates.length - 1] ?? "";
-
-        setSnapshots(nextSnapshots);
-        setActiveDate((current) => (current && nextSnapshots[current] ? current : latestDate));
+        setSnapshotTree(snapshot.val() ?? {});
         setDataError("");
       },
       (firebaseError) => {
@@ -120,14 +142,44 @@ export default function HomePage() {
     );
   }, [user?.uid]);
 
-  const orderedDates = useMemo(() => Object.keys(snapshots).sort().reverse(), [snapshots]);
-  const currentDate = activeDate || orderedDates[0] || formatSnapshotDate(new Date());
-  const currentSnapshot = snapshots[currentDate] ?? createEmptySnapshot(currentDate);
-  const entries = Object.entries(currentSnapshot.entries ?? {})
-    .map(([id, value]) => ({ id, ...value }))
-    .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  const recentVersions = useMemo(() => extractRecentVersions(snapshotTree, 5), [snapshotTree]);
 
-  const totals = entries.reduce(
+  useEffect(() => {
+    if (!recentVersions.length) {
+      setSelectedVersionKey("");
+      setLoadedVersionKey("");
+      setDraftEntries({});
+      return;
+    }
+
+    const nextSelectedKey = recentVersions.some((version) => version.key === selectedVersionKey)
+      ? selectedVersionKey
+      : recentVersions[0].key;
+
+    if (nextSelectedKey !== selectedVersionKey) {
+      setSelectedVersionKey(nextSelectedKey);
+      return;
+    }
+
+    if (loadedVersionKey !== nextSelectedKey) {
+      const nextVersion = recentVersions.find((version) => version.key === nextSelectedKey);
+      setDraftEntries(cloneEntries(nextVersion?.entries));
+      setLoadedVersionKey(nextSelectedKey);
+      setSaveState("idle");
+      setDataError("");
+    }
+  }, [loadedVersionKey, recentVersions, selectedVersionKey]);
+
+  const selectedVersion =
+    recentVersions.find((version) => version.key === selectedVersionKey) ?? recentVersions[0] ?? null;
+
+  const draftList = useMemo(() => {
+    return Object.entries(draftEntries)
+      .map(([id, value]) => ({ id, ...value }))
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+  }, [draftEntries]);
+
+  const totals = draftList.reduce(
     (accumulator, item) => {
       if (item.type === "income") {
         accumulator.income += Number(item.amount) || 0;
@@ -172,22 +224,79 @@ export default function HomePage() {
     }
   };
 
-  const handleEntryChange = (event) => {
+  const handleNewEntryChange = (event) => {
     const { name, value } = event.target;
-    setEntryForm((current) => ({ ...current, [name]: value }));
+    setNewEntry((current) => ({ ...current, [name]: value }));
+    setDataError("");
   };
 
-  const handleAddEntry = async (event) => {
+  const handleAddDraftEntry = (event) => {
     event.preventDefault();
 
+    const amount = Number(newEntry.amount);
+
+    if (!newEntry.description.trim() || !Number.isFinite(amount) || amount <= 0) {
+      setDataError("Ingresa una descripcion y un monto valido para el borrador.");
+      return;
+    }
+
+    const entryId = createDraftEntryId();
+
+    setDraftEntries((current) => ({
+      ...current,
+      [entryId]: {
+        type: newEntry.type,
+        description: newEntry.description.trim(),
+        amount,
+        createdAt: Date.now(),
+      },
+    }));
+
+    setNewEntry(defaultNewEntry);
+    setSaveState("idle");
+    setDataError("");
+  };
+
+  const handleDraftEntryChange = (entryId, field, value) => {
+    setDraftEntries((current) => ({
+      ...current,
+      [entryId]: {
+        ...current[entryId],
+        [field]: field === "amount" ? value : value,
+      },
+    }));
+
+    setSaveState("idle");
+    setDataError("");
+  };
+
+  const handleRemoveDraftEntry = (entryId) => {
+    setDraftEntries((current) => {
+      const nextEntries = { ...current };
+      delete nextEntries[entryId];
+      return nextEntries;
+    });
+
+    setSaveState("idle");
+    setDataError("");
+  };
+
+  const handleResetDraft = () => {
+    setDraftEntries(cloneEntries(selectedVersion?.entries));
+    setSaveState("idle");
+    setDataError("");
+  };
+
+  const handleSaveSnapshot = async () => {
     if (!user?.uid) {
       return;
     }
 
-    const amount = Number(entryForm.amount);
+    const sanitizedEntries = sanitizeEntries(draftEntries);
+    const validationError = validateEntries(sanitizedEntries);
 
-    if (!entryForm.description.trim() || !Number.isFinite(amount) || amount <= 0) {
-      setDataError("Ingresa una descripcion y un monto valido.");
+    if (validationError) {
+      setDataError(validationError);
       return;
     }
 
@@ -197,47 +306,22 @@ export default function HomePage() {
     try {
       const database = getFirebaseDatabase();
       const snapshotDate = formatSnapshotDate(new Date());
-      const snapshotRef = ref(database, `users/${user.uid}/cashflowSnapshots/${snapshotDate}`);
-      const existingSnapshot = await get(snapshotRef);
+      const versionsRef = ref(database, `users/${user.uid}/cashflowSnapshots/${snapshotDate}/versions`);
+      const newVersionRef = push(versionsRef);
 
-      if (!existingSnapshot.exists()) {
-        const latestBackupDate = orderedDates.length ? orderedDates[0] : "";
-        const latestBackup = latestBackupDate ? snapshots[latestBackupDate] : null;
+      await set(
+        newVersionRef,
+        createSnapshotVersion({
+          snapshotDate,
+          entries: sanitizedEntries,
+          user,
+          sourceVersion: selectedVersion,
+          savedAt: Date.now(),
+        }),
+      );
 
-        await set(snapshotRef, latestBackup ? cloneSnapshot(latestBackup, snapshotDate) : createEmptySnapshot(snapshotDate));
-      }
-
-      const entriesRef = ref(database, `users/${user.uid}/cashflowSnapshots/${snapshotDate}/entries`);
-      const newEntryRef = push(entriesRef);
-
-      await set(newEntryRef, {
-        type: entryForm.type,
-        description: entryForm.description.trim(),
-        amount,
-        createdAt: Date.now(),
-      });
-
-      setEntryForm(defaultEntry);
-      setActiveDate(snapshotDate);
-      setSaveState("saved");
-    } catch (firebaseError) {
-      setSaveState("error");
-      setDataError(firebaseError.message);
-    }
-  };
-
-  const handleRemoveEntry = async (entryId) => {
-    if (!user?.uid || !currentDate) {
-      return;
-    }
-
-    setSaveState("saving");
-    setDataError("");
-
-    try {
-      const database = getFirebaseDatabase();
-      const entryRef = ref(database, `users/${user.uid}/cashflowSnapshots/${currentDate}/entries/${entryId}`);
-      await remove(entryRef);
+      setSelectedVersionKey(buildVersionKey(snapshotDate, newVersionRef.key));
+      setLoadedVersionKey("");
       setSaveState("saved");
     } catch (firebaseError) {
       setSaveState("error");
@@ -301,14 +385,26 @@ export default function HomePage() {
       <section className="topbar">
         <div>
           <p className="eyebrow">Flujo de caja</p>
-          <h1>Snapshot activo: {currentDate}</h1>
+          <h1>Editor con guardado por versiones</h1>
           <p className="muted-text">
-            La web lee automaticamente el ultimo snapshot y conserva los anteriores como respaldo.
+            Editas el borrador libremente y solo se guarda una nueva entrada cuando confirmas.
           </p>
         </div>
 
         <div className="topbar-actions">
+          <label className="history-control">
+            Ultimas 5 entradas
+            <select onChange={(event) => setSelectedVersionKey(event.target.value)} value={selectedVersionKey}>
+              {recentVersions.map((version) => (
+                <option key={version.key} value={version.key}>
+                  {formatVersionLabel(version)}
+                </option>
+              ))}
+            </select>
+          </label>
+
           <span className="user-chip">{user?.email}</span>
+
           <button className="secondary-button" onClick={handleLogout} type="button">
             Cerrar sesion
           </button>
@@ -331,15 +427,15 @@ export default function HomePage() {
       </section>
 
       <section className="workspace-grid">
-        <form className="panel-card entry-form" onSubmit={handleAddEntry}>
+        <form className="panel-card entry-form" onSubmit={handleAddDraftEntry}>
           <div className="panel-heading">
-            <h2>Nuevo movimiento</h2>
-            <p>Se guardara en el snapshot de hoy. Si hoy no existe, se crea copiando el ultimo snapshot.</p>
+            <h2>Agregar al borrador</h2>
+            <p>Este movimiento solo se agrega localmente. No toca la base hasta que guardes.</p>
           </div>
 
           <label>
             Tipo
-            <select name="type" onChange={handleEntryChange} value={entryForm.type}>
+            <select name="type" onChange={handleNewEntryChange} value={newEntry.type}>
               <option value="income">Ingreso</option>
               <option value="expense">Gasto</option>
             </select>
@@ -349,9 +445,9 @@ export default function HomePage() {
             Descripcion
             <input
               name="description"
-              onChange={handleEntryChange}
-              placeholder="Ejemplo: pago cliente o compra de insumos"
-              value={entryForm.description}
+              onChange={handleNewEntryChange}
+              placeholder="Ejemplo: pago cliente o compra"
+              value={newEntry.description}
             />
           </label>
 
@@ -360,72 +456,81 @@ export default function HomePage() {
             <input
               inputMode="decimal"
               name="amount"
-              onChange={handleEntryChange}
+              onChange={handleNewEntryChange}
               placeholder="0"
-              value={entryForm.amount}
+              value={newEntry.amount}
             />
           </label>
 
-          <button className="primary-button" disabled={saveState === "saving"} type="submit">
-            {saveState === "saving" ? "Guardando..." : "Agregar movimiento"}
+          <button className="primary-button" type="submit">
+            Agregar al borrador
           </button>
-
-          {dataError ? <p className="error-text">{dataError}</p> : null}
         </form>
 
         <section className="panel-card">
           <div className="panel-heading">
-            <h2>Respaldos</h2>
-            <p>Selecciona cualquier fecha para revisar una copia anterior.</p>
+            <h2>Version seleccionada</h2>
+            <p>
+              Base cargada:{" "}
+              <strong>{selectedVersion ? formatVersionLabel(selectedVersion) : "Sin historial disponible"}</strong>
+            </p>
           </div>
 
-          <div className="snapshot-list">
-            {orderedDates.length ? (
-              orderedDates.map((date) => (
-                <button
-                  className={date === currentDate ? "snapshot-button active" : "snapshot-button"}
-                  key={date}
-                  onClick={() => setActiveDate(date)}
-                  type="button"
-                >
-                  {date}
-                </button>
-              ))
-            ) : (
-              <p className="muted-text">Aun no hay snapshots guardados.</p>
-            )}
+          <div className="button-row">
+            <button className="secondary-button" onClick={handleResetDraft} type="button">
+              Descartar cambios
+            </button>
+            <button
+              className="primary-button"
+              disabled={saveState === "saving"}
+              onClick={handleSaveSnapshot}
+              type="button"
+            >
+              {saveState === "saving" ? "Guardando..." : "Guardar como nueva entrada"}
+            </button>
           </div>
+
+          {saveState === "saved" ? <p className="success-text">Nueva entrada guardada correctamente.</p> : null}
+          {dataError ? <p className="error-text">{dataError}</p> : null}
         </section>
       </section>
 
       <section className="panel-card">
         <div className="panel-heading">
-          <h2>Movimientos</h2>
-          <p>Mostrando {entries.length} registros del snapshot {currentDate}.</p>
+          <h2>Borrador actual</h2>
+          <p>Puedes editar cada fila libremente antes de guardar una nueva version.</p>
         </div>
 
-        <div className="entry-list">
-          {entries.length ? (
-            entries.map((entry) => (
-              <article className="entry-row" key={entry.id}>
-                <div>
-                  <span className={entry.type === "income" ? "type-pill income" : "type-pill expense"}>
-                    {entry.type === "income" ? "Ingreso" : "Gasto"}
-                  </span>
-                  <strong>{entry.description}</strong>
-                  <p>{formatDateTime(entry.createdAt)}</p>
-                </div>
+        <div className="editor-list">
+          {draftList.length ? (
+            draftList.map((entry) => (
+              <article className="editor-row" key={entry.id}>
+                <select
+                  onChange={(event) => handleDraftEntryChange(entry.id, "type", event.target.value)}
+                  value={entry.type ?? "expense"}
+                >
+                  <option value="income">Ingreso</option>
+                  <option value="expense">Gasto</option>
+                </select>
 
-                <div className="entry-actions">
-                  <strong>{formatCurrency(entry.amount)}</strong>
-                  <button className="danger-button" onClick={() => handleRemoveEntry(entry.id)} type="button">
-                    Quitar
-                  </button>
-                </div>
+                <input
+                  onChange={(event) => handleDraftEntryChange(entry.id, "description", event.target.value)}
+                  value={entry.description ?? ""}
+                />
+
+                <input
+                  inputMode="decimal"
+                  onChange={(event) => handleDraftEntryChange(entry.id, "amount", event.target.value)}
+                  value={entry.amount ?? ""}
+                />
+
+                <button className="danger-button" onClick={() => handleRemoveDraftEntry(entry.id)} type="button">
+                  Quitar
+                </button>
               </article>
             ))
           ) : (
-            <p className="muted-text">Este snapshot no tiene movimientos todavia.</p>
+            <p className="muted-text">No hay movimientos en el borrador.</p>
           )}
         </div>
       </section>
@@ -433,20 +538,39 @@ export default function HomePage() {
   );
 }
 
-function createEmptySnapshot(date) {
-  return {
-    date,
-    createdAt: Date.now(),
-    entries: {},
-  };
-}
-
-function createInitialUserData(user, date) {
+function createInitialUserData(user, snapshotDate) {
   return {
     profile: createUserProfile(user),
     cashflowSnapshots: {
-      [date]: createEmptySnapshot(date),
+      [snapshotDate]: createSnapshotContainer(user, snapshotDate, {}),
     },
+  };
+}
+
+function createSnapshotContainer(user, snapshotDate, entries, savedAt = Date.now()) {
+  const versionId = createDraftEntryId();
+
+  return {
+    versions: {
+      [versionId]: createSnapshotVersion({
+        snapshotDate,
+        entries,
+        user,
+        savedAt,
+      }),
+    },
+  };
+}
+
+function createSnapshotVersion({ snapshotDate, entries, user, sourceVersion, savedAt }) {
+  return {
+    snapshotDate,
+    savedAt,
+    createdByUid: user?.uid ?? "",
+    createdByEmail: user?.email ?? "",
+    sourceSnapshotDate: sourceVersion?.snapshotDate ?? null,
+    sourceVersionId: sourceVersion?.versionId ?? null,
+    entries: sanitizeEntries(entries),
   };
 }
 
@@ -459,14 +583,81 @@ function createUserProfile(user) {
   };
 }
 
-function cloneSnapshot(snapshot, date) {
-  return {
-    ...snapshot,
-    date,
-    clonedFrom: snapshot.date ?? null,
-    clonedAt: Date.now(),
-    entries: snapshot.entries ?? {},
-  };
+function createDraftEntryId() {
+  return `entry_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function cloneEntries(entries = {}) {
+  return Object.fromEntries(
+    Object.entries(entries).map(([entryId, value]) => [
+      entryId,
+      {
+        ...value,
+      },
+    ]),
+  );
+}
+
+function sanitizeEntries(entries = {}) {
+  return Object.fromEntries(
+    Object.entries(entries).map(([entryId, value]) => [
+      entryId,
+      {
+        type: value?.type === "income" ? "income" : "expense",
+        description: String(value?.description ?? "").trim(),
+        amount: Number(value?.amount) || 0,
+        createdAt: Number(value?.createdAt) || Date.now(),
+      },
+    ]),
+  );
+}
+
+function validateEntries(entries = {}) {
+  for (const value of Object.values(entries)) {
+    if (!String(value?.description ?? "").trim()) {
+      return "Todas las filas deben tener descripcion antes de guardar.";
+    }
+
+    if (!Number.isFinite(Number(value?.amount)) || Number(value?.amount) <= 0) {
+      return "Todos los movimientos deben tener un monto mayor que cero.";
+    }
+  }
+
+  return "";
+}
+
+function extractRecentVersions(snapshotTree, limit) {
+  const versions = [];
+
+  for (const [snapshotDate, snapshotValue] of Object.entries(snapshotTree ?? {})) {
+    if (snapshotValue?.versions) {
+      for (const [versionId, version] of Object.entries(snapshotValue.versions)) {
+        versions.push({
+          key: buildVersionKey(snapshotDate, versionId),
+          snapshotDate,
+          versionId,
+          savedAt: Number(version?.savedAt) || 0,
+          entries: version?.entries ?? {},
+        });
+      }
+    } else if (snapshotValue) {
+      versions.push({
+        key: buildVersionKey(snapshotDate, `legacy_${snapshotValue.createdAt ?? 0}`),
+        snapshotDate,
+        versionId: `legacy_${snapshotValue.createdAt ?? 0}`,
+        savedAt: Number(snapshotValue?.createdAt) || 0,
+        entries: snapshotValue?.entries ?? {},
+      });
+    }
+  }
+
+  return versions
+    .sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0))
+    .slice(0, limit);
+}
+
+function buildVersionKey(snapshotDate, versionId) {
+  return `${snapshotDate}__${versionId}`;
 }
 
 function formatSnapshotDate(date) {
@@ -493,4 +684,8 @@ function formatDateTime(value) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(value));
+}
+
+function formatVersionLabel(version) {
+  return `${version.snapshotDate} | ${formatDateTime(version.savedAt)}`;
 }
