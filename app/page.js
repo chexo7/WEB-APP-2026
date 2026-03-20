@@ -1,144 +1,288 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { onValue, push, ref, serverTimestamp, set } from "firebase/database";
-import { database } from "@/lib/firebase";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
+import { onValue, ref, set } from "firebase/database";
+import { auth, database } from "@/lib/firebase";
 
-const recordsRef = ref(database, "registros");
+const connectionRef = ref(database, ".info/connected");
+const landingRef = ref(database, "landing");
+
+const defaultCredentials = {
+  email: "ssfamiliausa@gmail.com",
+  password: "",
+};
+
+const defaultContent = {
+  title: "Firebase conectado",
+  description: "Una landing minima para comprobar autenticacion, conexion y lectura/escritura en tiempo real.",
+  statusLabel: "Esperando conexion",
+  updatedAt: null,
+};
 
 export default function HomePage() {
-  const [records, setRecords] = useState([]);
-  const [form, setForm] = useState({ nombre: "", mensaje: "" });
-  const [status, setStatus] = useState("idle");
-  const [error, setError] = useState("");
+  const [credentials, setCredentials] = useState(defaultCredentials);
+  const [authState, setAuthState] = useState("checking");
+  const [connectionState, setConnectionState] = useState("checking");
+  const [submitState, setSubmitState] = useState("idle");
+  const [authError, setAuthError] = useState("");
+  const [saveError, setSaveError] = useState("");
+  const [content, setContent] = useState(defaultContent);
+  const [draft, setDraft] = useState(defaultContent);
+  const [userEmail, setUserEmail] = useState("");
 
   useEffect(() => {
-    const unsubscribe = onValue(
-      recordsRef,
-      (snapshot) => {
-        const data = snapshot.val() ?? {};
-        const nextRecords = Object.entries(data)
-          .map(([id, value]) => ({ id, ...value }))
-          .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
+    const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
+      setAuthState(user ? "authenticated" : "anonymous");
+      setUserEmail(user?.email ?? "");
+    });
 
-        setRecords(nextRecords);
+    const unsubscribeConnection = onValue(connectionRef, (snapshot) => {
+      setConnectionState(snapshot.val() ? "online" : "offline");
+    });
+
+    const unsubscribeContent = onValue(
+      landingRef,
+      (snapshot) => {
+        const data = snapshot.val();
+        const nextContent = data ? { ...defaultContent, ...data } : defaultContent;
+
+        setContent(nextContent);
+        setDraft(nextContent);
       },
       (firebaseError) => {
-        setError(firebaseError.message);
+        setSaveError(firebaseError.message);
       },
     );
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribeAuth();
+      unsubscribeConnection();
+      unsubscribeContent();
+    };
   }, []);
 
-  const handleChange = (event) => {
+  const handleCredentialsChange = (event) => {
     const { name, value } = event.target;
-    setForm((current) => ({ ...current, [name]: value }));
+    setCredentials((current) => ({ ...current, [name]: value }));
   };
 
-  const handleSubmit = async (event) => {
+  const handleDraftChange = (event) => {
+    const { name, value } = event.target;
+    setDraft((current) => ({ ...current, [name]: value }));
+  };
+
+  const handleLogin = async (event) => {
     event.preventDefault();
-    setStatus("saving");
-    setError("");
+    setAuthError("");
+    setAuthState("loading");
 
     try {
-      const newRecordRef = push(recordsRef);
-
-      await set(newRecordRef, {
-        nombre: form.nombre.trim(),
-        mensaje: form.mensaje.trim(),
-        createdAt: Date.now(),
-        createdAtServer: serverTimestamp(),
-      });
-
-      setForm({ nombre: "", mensaje: "" });
-      setStatus("saved");
+      await signInWithEmailAndPassword(auth, credentials.email.trim(), credentials.password);
     } catch (firebaseError) {
-      setStatus("error");
-      setError(firebaseError.message);
+      setAuthState("anonymous");
+      setAuthError(firebaseError.message);
+    }
+  };
+
+  const handleLogout = async () => {
+    setAuthError("");
+
+    try {
+      await signOut(auth);
+    } catch (firebaseError) {
+      setAuthError(firebaseError.message);
+    }
+  };
+
+  const handleSave = async (event) => {
+    event.preventDefault();
+    setSubmitState("saving");
+    setSaveError("");
+
+    try {
+      const nextContent = {
+        title: draft.title.trim(),
+        description: draft.description.trim(),
+        statusLabel: draft.statusLabel.trim(),
+        updatedAt: Date.now(),
+        updatedBy: userEmail || credentials.email.trim(),
+      };
+
+      await set(landingRef, nextContent);
+      setSubmitState("saved");
+    } catch (firebaseError) {
+      setSubmitState("error");
+      setSaveError(firebaseError.message);
     }
   };
 
   return (
     <main className="page-shell">
-      <section className="hero-card">
+      <section className="hero-card landing-hero">
         <div className="hero-copy">
-          <span className="eyebrow">Next.js + Firebase Realtime Database</span>
-          <h1>Tu web ya esta lista para leer y guardar datos en tiempo real.</h1>
+          <span className="eyebrow">Firebase status landing</span>
+          <h1>Conexion, autenticacion y base de datos en una sola vista.</h1>
           <p>
-            Este panel escucha la ruta <code>/registros</code> de tu base de datos y
-            agrega nuevas entradas al instante.
+            Esta landing lee la ruta <code>/landing</code>, muestra el estado de Firebase y
+            permite editar el contenido cuando hay una sesion activa.
           </p>
+
+          <div className="status-strip">
+            <StatusPill
+              label="Base de datos"
+              tone={connectionState === "online" ? "success" : connectionState === "offline" ? "danger" : "neutral"}
+              value={
+                connectionState === "online"
+                  ? "Conectada"
+                  : connectionState === "offline"
+                    ? "Sin conexion"
+                    : "Verificando"
+              }
+            />
+            <StatusPill
+              label="Sesion"
+              tone={authState === "authenticated" ? "success" : authState === "loading" ? "neutral" : "danger"}
+              value={
+                authState === "authenticated"
+                  ? "Activa"
+                  : authState === "loading"
+                    ? "Ingresando"
+                    : authState === "checking"
+                      ? "Comprobando"
+                      : "Cerrada"
+              }
+            />
+          </div>
         </div>
 
-        <form className="entry-form" onSubmit={handleSubmit}>
+        <form className="entry-form auth-form" onSubmit={handleLogin}>
+          <div className="card-heading">
+            <h2>Acceso</h2>
+            <p>El correo queda por defecto. La contrasena no se deja embebida en la web por seguridad.</p>
+          </div>
+
           <label>
-            Nombre
+            Email
             <input
-              name="nombre"
-              onChange={handleChange}
-              placeholder="Tu nombre"
-              required
-              value={form.nombre}
+              autoComplete="email"
+              name="email"
+              onChange={handleCredentialsChange}
+              type="email"
+              value={credentials.email}
             />
           </label>
 
           <label>
-            Mensaje
-            <textarea
-              name="mensaje"
-              onChange={handleChange}
-              placeholder="Escribe algo para guardar en Firebase"
-              required
-              rows={4}
-              value={form.mensaje}
+            Password
+            <input
+              autoComplete="current-password"
+              name="password"
+              onChange={handleCredentialsChange}
+              placeholder="Ingresa tu password"
+              type="password"
+              value={credentials.password}
             />
           </label>
 
-          <button disabled={status === "saving"} type="submit">
-            {status === "saving" ? "Guardando..." : "Guardar en Firebase"}
+          <button disabled={authState === "loading"} type="submit">
+            {authState === "loading" ? "Conectando..." : "Iniciar sesion"}
           </button>
 
-          {status === "saved" ? <p className="success">Registro guardado correctamente.</p> : null}
-          {error ? <p className="error">Error: {error}</p> : null}
+          <div className="session-summary">
+            <span>{userEmail || "Sin sesion activa"}</span>
+            <button
+              className="secondary-button"
+              onClick={handleLogout}
+              type="button"
+            >
+              Cerrar sesion
+            </button>
+          </div>
+
+          {authError ? <p className="error">Error: {authError}</p> : null}
         </form>
       </section>
 
-      <section className="list-card">
-        <div className="section-heading">
-          <div>
-            <span className="eyebrow">Datos en vivo</span>
-            <h2>Registros almacenados</h2>
-          </div>
-          <span className="record-count">{records.length} elementos</span>
-        </div>
+      <section className="list-card dashboard-grid">
+        <article className="preview-card">
+          <span className="eyebrow">Vista actual</span>
+          <h2>{content.title}</h2>
+          <p>{content.description}</p>
 
-        <div className="records-grid">
-          {records.length ? (
-            records.map((record) => (
-              <article className="record-item" key={record.id}>
-                <div className="record-header">
-                  <strong>{record.nombre}</strong>
-                  <span>{formatDate(record.createdAt)}</span>
-                </div>
-                <p>{record.mensaje}</p>
-              </article>
-            ))
-          ) : (
-            <article className="record-item empty-state">
-              <strong>No hay registros todavia.</strong>
-              <p>Crea el primero desde el formulario para probar la conexion.</p>
-            </article>
-          )}
-        </div>
+          <div className="status-panel">
+            <div>
+              <span className="meta-label">Estado visible</span>
+              <strong>{content.statusLabel}</strong>
+            </div>
+            <div>
+              <span className="meta-label">Ultima actualizacion</span>
+              <strong>{formatDate(content.updatedAt)}</strong>
+            </div>
+          </div>
+        </article>
+
+        <form className="entry-form editor-card" onSubmit={handleSave}>
+          <div className="card-heading">
+            <h2>Editor</h2>
+            <p>Modifica el contenido guardado en Firebase Realtime Database.</p>
+          </div>
+
+          <label>
+            Titulo
+            <input
+              disabled={authState !== "authenticated"}
+              name="title"
+              onChange={handleDraftChange}
+              value={draft.title}
+            />
+          </label>
+
+          <label>
+            Descripcion
+            <textarea
+              disabled={authState !== "authenticated"}
+              name="description"
+              onChange={handleDraftChange}
+              rows={5}
+              value={draft.description}
+            />
+          </label>
+
+          <label>
+            Etiqueta de estado
+            <input
+              disabled={authState !== "authenticated"}
+              name="statusLabel"
+              onChange={handleDraftChange}
+              value={draft.statusLabel}
+            />
+          </label>
+
+          <button disabled={authState !== "authenticated" || submitState === "saving"} type="submit">
+            {submitState === "saving" ? "Guardando..." : "Guardar cambios"}
+          </button>
+
+          {submitState === "saved" ? <p className="success">Cambios guardados correctamente.</p> : null}
+          {saveError ? <p className="error">Error: {saveError}</p> : null}
+        </form>
       </section>
     </main>
   );
 }
 
+function StatusPill({ label, value, tone }) {
+  return (
+    <div className={`status-pill status-${tone}`}>
+      <span>{label}</span>
+      <strong>{value}</strong>
+    </div>
+  );
+}
+
 function formatDate(timestamp) {
   if (!timestamp) {
-    return "Sin fecha";
+    return "Todavia sin cambios";
   }
 
   return new Intl.DateTimeFormat("es-CL", {

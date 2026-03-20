@@ -1,17 +1,20 @@
 :root {
   color-scheme: light;
-  --background: #f2efe8;
-  --surface: rgba(255, 252, 246, 0.88);
-  --surface-strong: #fffdf8;
-  --border: rgba(42, 56, 49, 0.12);
-  --text: #1d2a25;
-  --muted: #5f6d65;
+  --background: #f3efe6;
+  --surface: rgba(255, 251, 245, 0.88);
+  --surface-strong: #fffdf9;
+  --border: rgba(38, 54, 47, 0.12);
+  --text: #1f2b27;
+  --muted: #5f6e66;
   --accent: #0f766e;
   --accent-strong: #115e59;
   --accent-soft: rgba(15, 118, 110, 0.12);
   --danger: #b42318;
+  --danger-soft: rgba(180, 35, 24, 0.12);
   --success: #067647;
-  --shadow: 0 22px 60px rgba(32, 43, 38, 0.12);
+  --success-soft: rgba(6, 118, 71, 0.12);
+  --neutral-soft: rgba(31, 43, 39, 0.08);
+  --shadow: 0 24px 70px rgba(36, 46, 41, 0.13);
 }
 
 * {
@@ -27,9 +30,9 @@ body {
   min-height: 100vh;
   font-family: Georgia, "Times New Roman", serif;
   background:
-    radial-gradient(circle at top left, rgba(15, 118, 110, 0.18), transparent 30%),
-    radial-gradient(circle at bottom right, rgba(180, 83, 9, 0.14), transparent 28%),
-    linear-gradient(135deg, #ebe4d6 0%, #f6f1e8 52%, #efe8dc 100%);
+    radial-gradient(circle at top left, rgba(15, 118, 110, 0.15), transparent 28%),
+    radial-gradient(circle at right bottom, rgba(180, 83, 9, 0.12), transparent 25%),
+    linear-gradient(135deg, #ece4d7 0%, #f6f0e6 48%, #f0e8dc 100%);
   color: var(--text);
 }
 
@@ -40,7 +43,7 @@ textarea {
 }
 
 code {
-  padding: 0.15rem 0.45rem;
+  padding: 0.12rem 0.4rem;
   border-radius: 999px;
   background: var(--accent-soft);
   color: var(--accent-strong);
@@ -49,7 +52,7 @@ code {
 .page-shell {
   width: min(1120px, calc(100% - 2rem));
   margin: 0 auto;
-  padding: 3rem 0 4rem;
+  padding: 2rem 0 4rem;
 }
 
 .hero-card,
@@ -61,29 +64,30 @@ code {
   box-shadow: var(--shadow);
 }
 
-.hero-card {
+.landing-hero {
   display: grid;
   grid-template-columns: 1.1fr 0.9fr;
-  gap: 2rem;
+  gap: 1.5rem;
   padding: 2rem;
 }
 
 .hero-copy h1,
-.section-heading h2 {
+.card-heading h2,
+.preview-card h2 {
   margin: 0;
-  line-height: 1.04;
+  line-height: 1.02;
   letter-spacing: -0.04em;
 }
 
 .hero-copy h1 {
-  max-width: 12ch;
-  font-size: clamp(2.6rem, 7vw, 5.6rem);
+  max-width: 11ch;
+  font-size: clamp(2.8rem, 7vw, 5.5rem);
 }
 
-.hero-copy p {
-  max-width: 52ch;
+.hero-copy p,
+.card-heading p,
+.preview-card p {
   color: var(--muted);
-  font-size: 1.05rem;
 }
 
 .eyebrow {
@@ -96,7 +100,51 @@ code {
   text-transform: uppercase;
 }
 
-.entry-form {
+.status-strip,
+.status-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.status-strip {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin-top: 1.5rem;
+}
+
+.status-pill {
+  padding: 1rem;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  background: var(--surface-strong);
+}
+
+.status-pill span,
+.meta-label {
+  display: block;
+  margin-bottom: 0.35rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.status-pill strong,
+.status-panel strong {
+  font-size: 1rem;
+}
+
+.status-success {
+  background: linear-gradient(180deg, var(--surface-strong) 0%, var(--success-soft) 100%);
+}
+
+.status-danger {
+  background: linear-gradient(180deg, var(--surface-strong) 0%, var(--danger-soft) 100%);
+}
+
+.status-neutral {
+  background: linear-gradient(180deg, var(--surface-strong) 0%, var(--neutral-soft) 100%);
+}
+
+.entry-form,
+.preview-card {
   display: grid;
   gap: 1rem;
   padding: 1.5rem;
@@ -116,7 +164,7 @@ code {
 .entry-form textarea {
   width: 100%;
   padding: 0.9rem 1rem;
-  border: 1px solid rgba(29, 42, 37, 0.14);
+  border: 1px solid rgba(31, 43, 39, 0.14);
   border-radius: 16px;
   background: #fff;
   color: var(--text);
@@ -127,28 +175,51 @@ code {
   min-height: 120px;
 }
 
-.entry-form button {
+.entry-form button,
+.secondary-button {
   border: 0;
   border-radius: 999px;
   padding: 0.95rem 1.2rem;
   font-weight: 700;
+  cursor: pointer;
+}
+
+.entry-form button {
   color: #f8fffd;
   background: linear-gradient(135deg, var(--accent) 0%, var(--accent-strong) 100%);
-  cursor: pointer;
-  transition:
-    transform 140ms ease,
-    box-shadow 140ms ease,
-    opacity 140ms ease;
   box-shadow: 0 16px 24px rgba(15, 118, 110, 0.22);
 }
 
-.entry-form button:hover {
-  transform: translateY(-1px);
+.secondary-button {
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--border);
 }
 
-.entry-form button:disabled {
-  cursor: wait;
-  opacity: 0.75;
+.entry-form button:disabled,
+.entry-form input:disabled,
+.entry-form textarea:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 0.95fr 1.05fr;
+  gap: 1.5rem;
+  margin-top: 1.5rem;
+  padding: 1.5rem;
+}
+
+.session-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.status-panel {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .success,
@@ -165,77 +236,14 @@ code {
   color: var(--danger);
 }
 
-.list-card {
-  margin-top: 1.5rem;
-  padding: 1.6rem;
-}
-
-.section-heading {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1.5rem;
-}
-
-.record-count {
-  padding: 0.55rem 0.9rem;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent-strong);
-  font-size: 0.9rem;
-  font-weight: 700;
-}
-
-.records-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 1rem;
-}
-
-.record-item {
-  min-height: 170px;
-  padding: 1.1rem;
-  border-radius: 20px;
-  background: var(--surface-strong);
-  border: 1px solid var(--border);
-}
-
-.record-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.85rem;
-}
-
-.record-header strong {
-  font-size: 1.05rem;
-}
-
-.record-header span,
-.record-item p {
-  color: var(--muted);
-}
-
-.record-item p {
-  margin: 0;
-  white-space: pre-wrap;
-}
-
-.empty-state {
-  display: grid;
-  place-items: center;
-  text-align: center;
-}
-
 @media (max-width: 860px) {
   .page-shell {
     width: min(100% - 1rem, 1120px);
     padding-top: 1rem;
   }
 
-  .hero-card {
+  .landing-hero,
+  .dashboard-grid {
     grid-template-columns: 1fr;
     padding: 1rem;
   }
@@ -244,12 +252,13 @@ code {
     max-width: 100%;
   }
 
-  .list-card {
-    padding: 1rem;
+  .status-strip,
+  .status-panel {
+    grid-template-columns: 1fr;
   }
 
-  .section-heading {
-    align-items: flex-start;
+  .session-summary {
+    align-items: stretch;
     flex-direction: column;
   }
 }
