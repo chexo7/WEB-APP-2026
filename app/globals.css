@@ -1,15 +1,16 @@
 :root {
   color-scheme: light;
-  --bg: #f6f1e8;
-  --card: rgba(255, 253, 248, 0.94);
-  --border: rgba(30, 42, 37, 0.12);
+  --bg: #f5f0e6;
+  --card: rgba(255, 252, 246, 0.94);
+  --border: rgba(31, 43, 38, 0.12);
   --text: #1c2924;
   --muted: #607067;
   --accent: #0f766e;
   --accent-strong: #115e59;
+  --accent-soft: rgba(15, 118, 110, 0.12);
   --danger: #b42318;
   --danger-soft: rgba(180, 35, 24, 0.08);
-  --success-soft: rgba(6, 118, 71, 0.1);
+  --success: #067647;
   --shadow: 0 24px 60px rgba(30, 42, 37, 0.12);
 }
 
@@ -27,7 +28,7 @@ body {
   min-height: 100vh;
   font-family: Georgia, "Times New Roman", serif;
   background:
-    radial-gradient(circle at top, rgba(15, 118, 110, 0.12), transparent 28%),
+    radial-gradient(circle at top, rgba(15, 118, 110, 0.12), transparent 30%),
     linear-gradient(180deg, #efe7da 0%, var(--bg) 100%);
   color: var(--text);
 }
@@ -46,12 +47,13 @@ select {
 }
 
 .login-card,
-.panel-card,
+.topbar,
 .summary-card,
-.topbar {
+.tabs-card,
+.panel-card {
+  border: 1px solid var(--border);
   border-radius: 28px;
   background: var(--card);
-  border: 1px solid var(--border);
   box-shadow: var(--shadow);
   backdrop-filter: blur(16px);
 }
@@ -62,6 +64,7 @@ select {
 }
 
 .login-form,
+.loading-card,
 .entry-form,
 .panel-card {
   display: grid;
@@ -81,7 +84,8 @@ select {
 }
 
 .login-form label,
-.entry-form label {
+.entry-form label,
+.history-control {
   display: grid;
   gap: 0.45rem;
   font-size: 0.95rem;
@@ -91,9 +95,7 @@ select {
 .login-form input,
 .entry-form input,
 .entry-form select,
-.history-control select,
-.editor-row input,
-.editor-row select {
+.history-control select {
   width: 100%;
   padding: 0.95rem 1rem;
   border-radius: 16px;
@@ -105,7 +107,7 @@ select {
 .primary-button,
 .secondary-button,
 .danger-button,
-.snapshot-button {
+.tab-button {
   border-radius: 999px;
   padding: 0.9rem 1.1rem;
   font-weight: 700;
@@ -119,7 +121,7 @@ select {
 }
 
 .secondary-button,
-.snapshot-button {
+.tab-button {
   border: 1px solid var(--border);
   color: var(--text);
   background: transparent;
@@ -127,35 +129,42 @@ select {
 
 .danger-button {
   border: 1px solid rgba(180, 35, 24, 0.25);
-  background: var(--danger-soft);
   color: var(--danger);
+  background: var(--danger-soft);
 }
 
-.snapshot-button.active {
+.tab-button.active {
+  background: var(--accent-soft);
   border-color: rgba(15, 118, 110, 0.24);
-  background: rgba(15, 118, 110, 0.1);
   color: var(--accent-strong);
 }
 
 .primary-button:disabled {
   cursor: wait;
-  opacity: 0.7;
+  opacity: 0.72;
+}
+
+.error-text,
+.success-text,
+.muted-text,
+.record-main p,
+.record-main span {
+  margin: 0;
 }
 
 .error-text {
-  margin: 0;
   color: var(--danger);
-  font-size: 0.95rem;
 }
 
 .success-text {
-  margin: 0;
-  color: #067647;
-  font-size: 0.95rem;
+  color: var(--success);
 }
 
-.muted-text {
-  margin: 0;
+.muted-text,
+.record-main p,
+.record-main span,
+.summary-card span,
+.panel-heading p {
   color: var(--muted);
 }
 
@@ -169,7 +178,7 @@ select {
 }
 
 .app-shell {
-  width: min(1200px, calc(100% - 2rem));
+  width: min(1220px, calc(100% - 2rem));
   margin: 0 auto;
   padding: 1.25rem 0 2rem;
 }
@@ -189,28 +198,26 @@ select {
 }
 
 .history-control {
-  display: grid;
-  gap: 0.45rem;
   min-width: 260px;
-  font-size: 0.95rem;
-  font-weight: 700;
 }
 
+.status-chip,
 .user-chip {
   padding: 0.85rem 1rem;
   border-radius: 999px;
   border: 1px solid var(--border);
 }
 
-.summary-grid,
-.workspace-grid {
-  display: grid;
-  gap: 1rem;
-  margin-top: 1rem;
+.status-chip.pending {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
 }
 
 .summary-grid {
+  display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
 }
 
 .summary-card {
@@ -219,16 +226,29 @@ select {
   gap: 0.4rem;
 }
 
-.summary-card span {
-  color: var(--muted);
-}
-
 .summary-card strong {
   font-size: clamp(1.4rem, 3vw, 2rem);
 }
 
+.tabs-card {
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.tabs-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.tab-panel {
+  margin-top: 1rem;
+}
+
 .workspace-grid {
-  grid-template-columns: 1.1fr 0.9fr;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
 }
 
 .panel-card {
@@ -236,12 +256,12 @@ select {
 }
 
 .panel-heading p {
-  margin: 0.35rem 0 0;
-  color: var(--muted);
+  margin-top: 0.35rem;
 }
 
 .button-row,
-.editor-list {
+.record-list,
+.record-actions {
   display: grid;
   gap: 0.75rem;
 }
@@ -250,61 +270,57 @@ select {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
-.editor-row {
-  display: grid;
-  grid-template-columns: 180px minmax(0, 1fr) 180px 120px;
+.record-row {
+  display: flex;
+  justify-content: space-between;
   gap: 1rem;
   padding: 1rem;
-  border-radius: 20px;
+  border-radius: 22px;
   border: 1px solid var(--border);
-  background: #fffdfa;
+  background: #fffdf9;
 }
 
-.loading-card {
+.record-main {
   display: grid;
+  gap: 0.35rem;
+}
+
+.record-main strong,
+.record-side strong {
+  font-size: 1rem;
+}
+
+.record-side {
+  display: grid;
+  justify-items: end;
   gap: 0.75rem;
 }
 
-.type-pill {
-  display: inline-block;
-  margin-bottom: 0.55rem;
-  padding: 0.35rem 0.65rem;
-  border-radius: 999px;
-  font-size: 0.85rem;
-  font-weight: 700;
+.blank-panel {
+  min-height: 320px;
+  align-content: start;
 }
 
-.type-pill.income {
-  background: var(--success-soft);
-  color: #067647;
-}
-
-.type-pill.expense {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
-
-@media (max-width: 860px) {
+@media (max-width: 900px) {
   .app-shell {
-    width: min(100% - 1rem, 1200px);
+    width: min(100% - 1rem, 1220px);
     padding-top: 0.5rem;
   }
 
   .topbar,
-  .summary-grid,
   .workspace-grid,
-  .editor-row,
-  .button-row {
+  .summary-grid,
+  .button-row,
+  .record-row {
     grid-template-columns: 1fr;
   }
 
   .topbar,
-  .topbar-actions,
-  .editor-row {
+  .record-row {
     display: grid;
   }
 
-  .topbar-actions {
+  .record-side {
     justify-items: stretch;
   }
 
@@ -313,7 +329,8 @@ select {
     display: grid;
   }
 
-  .summary-grid {
-    grid-template-columns: 1fr;
+  .topbar-actions {
+    justify-items: stretch;
+    display: grid;
   }
 }
