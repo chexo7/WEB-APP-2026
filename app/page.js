@@ -7,9 +7,10 @@ import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 
 const defaultCredentials = { email: "ssfamiliausa@gmail.com", password: "" };
 const tabs = [
+  { id: "summary", label: "Resumen" },
   { id: "expenses", label: "Gastos" },
   { id: "incomes", label: "Ingresos" },
-  { id: "cashflow", label: "Flujo de caja" },
+  { id: "cashflow", label: "Tabla" },
   { id: "charts", label: "Graficos" },
 ];
 
@@ -18,7 +19,7 @@ export default function HomePage() {
   const [authState, setAuthState] = useState("checking");
   const [authError, setAuthError] = useState("");
   const [user, setUser] = useState(null);
-  const [activeTab, setActiveTab] = useState("expenses");
+  const [activeTab, setActiveTab] = useState("summary");
   const [snapshotTree, setSnapshotTree] = useState({});
   const [selectedVersionKey, setSelectedVersionKey] = useState("");
   const [loadedVersionKey, setLoadedVersionKey] = useState("");
@@ -418,14 +419,14 @@ export default function HomePage() {
     <main className="app-shell">
       <section className="topbar">
         <div>
-          <p className="eyebrow">Caja diaria</p>
-          <h1>Panel principal</h1>
-          <p className="muted-text">Editas libremente y la base solo cambia cuando tu guardas una nueva version.</p>
+          <p className="eyebrow">Web App Flujo De Caja</p>
+          <h1>Sketch funcional</h1>
+          <p className="muted-text">Trabajas sobre un borrador local y solo guardas una nueva entrada cuando lo confirmas.</p>
         </div>
 
         <div className="topbar-actions">
           <label className="history-control">
-            Version cargada
+            Ultimas 5 entradas
             <select onChange={(event) => setSelectedVersionKey(event.target.value)} value={selectedVersionKey}>
               {recentVersions.map((version) => (
                 <option key={version.key} value={version.key}>
@@ -447,21 +448,6 @@ export default function HomePage() {
         </div>
       </section>
 
-      <section className="summary-grid">
-        <article className="summary-card">
-          <span>Ingresos</span>
-          <strong>{money(incomeTotal, "USD")}</strong>
-        </article>
-        <article className="summary-card">
-          <span>Gastos</span>
-          <strong>{money(expenseTotal, "USD")}</strong>
-        </article>
-        <article className="summary-card">
-          <span>Saldo</span>
-          <strong>{money(balance, "USD")}</strong>
-        </article>
-      </section>
-
       <section className="tabs-card">
         <div className="tabs-bar" role="tablist" aria-label="Pestanas principales">
           {tabs.map((tab) => (
@@ -477,51 +463,101 @@ export default function HomePage() {
         </div>
 
         <div className="tab-panel">
-          {activeTab === "expenses" ? (
-            <section className="workspace-grid">
-              <form className="panel-card entry-form" onSubmit={saveExpenseToDraft}>
+          {activeTab === "summary" ? (
+            <section className="summary-panel">
+              <div className="summary-grid">
+                <article className="summary-card">
+                  <span>Version activa</span>
+                  <strong>{selectedVersion ? selectedVersion.snapshotDate : "Sin datos"}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Total ingresos</span>
+                  <strong>{money(incomeTotal, "USD")}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Total gastos</span>
+                  <strong>{money(expenseTotal, "USD")}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Saldo actual</span>
+                  <strong>{money(balance, "USD")}</strong>
+                </article>
+              </div>
+
+              <section className="panel-card blank-panel summary-note">
                 <div className="panel-heading">
-                  <h2>{editingExpenseId ? "Modificar gasto" : "Ingresar gasto"}</h2>
-                  <p>Datos, frecuencia, fecha, valor, moneda, comercio y recurrencia.</p>
+                  <h2>Resumen general</h2>
+                  <p>Desde aqui controlas la version cargada, el estado del borrador y el balance general antes de pasar a cada pestana operativa.</p>
                 </div>
 
-                <label>
-                  Datos
-                  <input name="detail" onChange={(e) => setExpenseForm((c) => ({ ...c, detail: e.target.value }))} value={expenseForm.detail} />
-                </label>
-                <label>
-                  Frecuencia
-                  <input name="frequency" onChange={(e) => setExpenseForm((c) => ({ ...c, frequency: e.target.value }))} value={expenseForm.frequency} />
-                </label>
-                <label>
-                  Fecha
-                  <input name="date" onChange={(e) => setExpenseForm((c) => ({ ...c, date: e.target.value }))} type="date" value={expenseForm.date} />
-                </label>
-                <label>
-                  Valor
-                  <input inputMode="decimal" name="amount" onChange={(e) => setExpenseForm((c) => ({ ...c, amount: e.target.value }))} value={expenseForm.amount} />
-                </label>
-                <label>
-                  Moneda
-                  <select name="currency" onChange={(e) => setExpenseForm((c) => ({ ...c, currency: e.target.value }))} value={expenseForm.currency}>
-                    <option value="CLP">CLP</option>
-                    <option value="USD">USD</option>
-                  </select>
-                </label>
-                <label>
-                  Nombre del comercio
-                  <input name="merchantName" onChange={(e) => setExpenseForm((c) => ({ ...c, merchantName: e.target.value }))} value={expenseForm.merchantName} />
-                </label>
-                <label>
-                  Recurrencia
-                  <input name="recurrence" onChange={(e) => setExpenseForm((c) => ({ ...c, recurrence: e.target.value }))} value={expenseForm.recurrence} />
-                </label>
+                <div className="summary-meta">
+                  <div>
+                    <span className="summary-meta-label">Entrada seleccionada</span>
+                    <strong>{selectedVersion ? labelVersion(selectedVersion) : "Sin historial todavia"}</strong>
+                  </div>
+                  <div>
+                    <span className="summary-meta-label">Registros en borrador</span>
+                    <strong>{expenses.length + incomes.length} movimientos</strong>
+                  </div>
+                </div>
+              </section>
+            </section>
+          ) : null}
+
+          {activeTab === "expenses" ? (
+            <section className="workspace-stack">
+              <form className="panel-card panel-frame entry-form" onSubmit={saveExpenseToDraft}>
+                <div className="panel-heading">
+                  <h2>{editingExpenseId ? "Modificar entrada (gasto)" : "Agregar entrada (gasto)"}</h2>
+                  <p>Registra los datos principales del gasto y dejalos listos en el borrador antes de guardar la entrada.</p>
+                </div>
+
+                <div className="form-grid form-grid-expenses">
+                  <label className="field-wide">
+                    Datos
+                    <input name="detail" onChange={(e) => setExpenseForm((c) => ({ ...c, detail: e.target.value }))} value={expenseForm.detail} />
+                  </label>
+                  <label>
+                    Frecuencia
+                    <input name="frequency" onChange={(e) => setExpenseForm((c) => ({ ...c, frequency: e.target.value }))} value={expenseForm.frequency} />
+                  </label>
+                  <label>
+                    Fecha
+                    <input name="date" onChange={(e) => setExpenseForm((c) => ({ ...c, date: e.target.value }))} type="date" value={expenseForm.date} />
+                  </label>
+                  <label>
+                    Valor
+                    <input inputMode="decimal" name="amount" onChange={(e) => setExpenseForm((c) => ({ ...c, amount: e.target.value }))} value={expenseForm.amount} />
+                  </label>
+                  <label>
+                    Moneda
+                    <select name="currency" onChange={(e) => setExpenseForm((c) => ({ ...c, currency: e.target.value }))} value={expenseForm.currency}>
+                      <option value="CLP">CLP</option>
+                      <option value="USD">USD</option>
+                    </select>
+                  </label>
+                  <label>
+                    Nombre del comercio
+                    <input name="merchantName" onChange={(e) => setExpenseForm((c) => ({ ...c, merchantName: e.target.value }))} value={expenseForm.merchantName} />
+                  </label>
+                  <label>
+                    Recurrencia
+                    <input name="recurrence" onChange={(e) => setExpenseForm((c) => ({ ...c, recurrence: e.target.value }))} value={expenseForm.recurrence} />
+                  </label>
+                </div>
 
                 <div className="button-row">
                   <button className="primary-button" type="submit">
-                    {editingExpenseId ? "Actualizar gasto" : "Agregar gasto al borrador"}
+                    {editingExpenseId ? "Actualizar gasto" : "Anadir gasto"}
                   </button>
-                  <button className="secondary-button" onClick={() => { setExpenseForm(defaultExpenseForm()); setEditingExpenseId(""); }} type="button">
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setExpenseForm(defaultExpenseForm());
+                      setEditingExpenseId("");
+                    }}
+                    type="button"
+                  >
                     Limpiar
                   </button>
                 </div>
@@ -539,30 +575,46 @@ export default function HomePage() {
                 {dataError ? <p className="error-text">{dataError}</p> : null}
               </form>
 
-              <section className="panel-card">
+              <section className="panel-card panel-frame panel-table">
                 <div className="panel-heading">
                   <h2>Lista de gastos</h2>
-                  <p>Se pueden ver y modificar con su boton correspondiente.</p>
+                  <p>Las entradas quedan visibles como lista editable antes de guardarlas como nueva version.</p>
                 </div>
 
-                <div className="record-list">
+                <div className="table-wrap">
                   {expenses.length ? (
-                    expenses.map((expense) => (
-                      <article className="record-row" key={expense.id}>
-                        <div className="record-main">
-                          <strong>{expense.merchantName || "Sin comercio"}</strong>
-                          <p>{expense.detail || "Sin detalle"}</p>
-                          <span>{expense.date} | {expense.frequency || "Sin frecuencia"} | {expense.recurrence || "Sin recurrencia"}</span>
-                        </div>
-                        <div className="record-side">
-                          <strong>{money(expense.amount, expense.currency)}</strong>
-                          <div className="record-actions">
-                            <button className="secondary-button" onClick={() => editExpense(expense.id)} type="button">Modificar</button>
-                            <button className="danger-button" onClick={() => deleteExpense(expense.id)} type="button">Quitar</button>
-                          </div>
-                        </div>
-                      </article>
-                    ))
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Fecha</th>
+                          <th>Datos</th>
+                          <th>Frecuencia</th>
+                          <th>Comercio</th>
+                          <th>Monto</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {expenses.map((expense) => (
+                          <tr key={expense.id}>
+                            <td>{formatDateLabel(expense.date)}</td>
+                            <td>
+                              <strong>{expense.detail || "Sin detalle"}</strong>
+                              <span>{expense.recurrence || "Sin recurrencia"}</span>
+                            </td>
+                            <td>{expense.frequency || "Sin frecuencia"}</td>
+                            <td>{expense.merchantName || "Sin comercio"}</td>
+                            <td className="amount-cell">{money(expense.amount, expense.currency)}</td>
+                            <td className="actions-cell">
+                              <div className="table-actions">
+                                <button className="secondary-button" onClick={() => editExpense(expense.id)} type="button">Modificar</button>
+                                <button className="danger-button" onClick={() => deleteExpense(expense.id)} type="button">Quitar</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   ) : (
                     <p className="muted-text">Todavia no hay gastos en la lista.</p>
                   )}
@@ -572,31 +624,40 @@ export default function HomePage() {
           ) : null}
 
           {activeTab === "incomes" ? (
-            <section className="workspace-grid">
-              <form className="panel-card entry-form" onSubmit={saveIncomeToDraft}>
+            <section className="workspace-stack">
+              <form className="panel-card panel-frame entry-form" onSubmit={saveIncomeToDraft}>
                 <div className="panel-heading">
-                  <h2>{editingIncomeId ? "Modificar ingreso" : "Ingresar ingreso"}</h2>
-                  <p>Valor, nombre y recurrencia para cada ingreso.</p>
+                  <h2>{editingIncomeId ? "Modificar entrada (ingreso)" : "Agregar entrada (ingreso)"}</h2>
+                  <p>Deja listos los ingresos del borrador y luego genera una nueva entrada cuando estes seguro.</p>
                 </div>
 
-                <label>
-                  Nombre
-                  <input name="name" onChange={(e) => setIncomeForm((c) => ({ ...c, name: e.target.value }))} value={incomeForm.name} />
-                </label>
-                <label>
-                  Valor
-                  <input inputMode="decimal" name="amount" onChange={(e) => setIncomeForm((c) => ({ ...c, amount: e.target.value }))} value={incomeForm.amount} />
-                </label>
-                <label>
-                  Recurrencia
-                  <input name="recurrence" onChange={(e) => setIncomeForm((c) => ({ ...c, recurrence: e.target.value }))} value={incomeForm.recurrence} />
-                </label>
+                <div className="form-grid form-grid-incomes">
+                  <label>
+                    Nombre
+                    <input name="name" onChange={(e) => setIncomeForm((c) => ({ ...c, name: e.target.value }))} value={incomeForm.name} />
+                  </label>
+                  <label>
+                    Valor
+                    <input inputMode="decimal" name="amount" onChange={(e) => setIncomeForm((c) => ({ ...c, amount: e.target.value }))} value={incomeForm.amount} />
+                  </label>
+                  <label>
+                    Recurrencia
+                    <input name="recurrence" onChange={(e) => setIncomeForm((c) => ({ ...c, recurrence: e.target.value }))} value={incomeForm.recurrence} />
+                  </label>
+                </div>
 
                 <div className="button-row">
                   <button className="primary-button" type="submit">
-                    {editingIncomeId ? "Actualizar ingreso" : "Agregar ingreso al borrador"}
+                    {editingIncomeId ? "Actualizar ingreso" : "Anadir ingreso"}
                   </button>
-                  <button className="secondary-button" onClick={() => { setIncomeForm(defaultIncomeForm()); setEditingIncomeId(""); }} type="button">
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setIncomeForm(defaultIncomeForm());
+                      setEditingIncomeId("");
+                    }}
+                    type="button"
+                  >
                     Limpiar
                   </button>
                 </div>
@@ -614,29 +675,41 @@ export default function HomePage() {
                 {dataError ? <p className="error-text">{dataError}</p> : null}
               </form>
 
-              <section className="panel-card">
+              <section className="panel-card panel-frame panel-table">
                 <div className="panel-heading">
                   <h2>Lista de ingresos</h2>
-                  <p>Los ingresos tambien se pueden revisar y modificar desde aqui.</p>
+                  <p>Cada ingreso del borrador queda editable antes de guardarlo como nueva entrada.</p>
                 </div>
 
-                <div className="record-list">
+                <div className="table-wrap">
                   {incomes.length ? (
-                    incomes.map((income) => (
-                      <article className="record-row" key={income.id}>
-                        <div className="record-main">
-                          <strong>{income.name || "Sin nombre"}</strong>
-                          <span>{income.recurrence || "Sin recurrencia"}</span>
-                        </div>
-                        <div className="record-side">
-                          <strong>{money(income.amount, "USD")}</strong>
-                          <div className="record-actions">
-                            <button className="secondary-button" onClick={() => editIncome(income.id)} type="button">Modificar</button>
-                            <button className="danger-button" onClick={() => deleteIncome(income.id)} type="button">Quitar</button>
-                          </div>
-                        </div>
-                      </article>
-                    ))
+                    <table className="data-table">
+                      <thead>
+                        <tr>
+                          <th>Fecha</th>
+                          <th>Nombre</th>
+                          <th>Recurrencia</th>
+                          <th>Monto</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {incomes.map((income) => (
+                          <tr key={income.id}>
+                            <td>{formatTimestampLabel(income.createdAt)}</td>
+                            <td>{income.name || "Sin nombre"}</td>
+                            <td>{income.recurrence || "Sin recurrencia"}</td>
+                            <td className="amount-cell">{money(income.amount, "USD")}</td>
+                            <td className="actions-cell">
+                              <div className="table-actions">
+                                <button className="secondary-button" onClick={() => editIncome(income.id)} type="button">Modificar</button>
+                                <button className="danger-button" onClick={() => deleteIncome(income.id)} type="button">Quitar</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   ) : (
                     <p className="muted-text">Todavia no hay ingresos en la lista.</p>
                   )}
@@ -649,8 +722,9 @@ export default function HomePage() {
             <section className="panel-card blank-panel">
               <div className="panel-heading">
                 <h2>Flujo de caja en tabla</h2>
-                <p>Esta pestana queda en blanco por ahora.</p>
+                <p>Esta pestana queda reservada para la tabla completa del flujo de caja.</p>
               </div>
+              <p className="placeholder-copy">Queda vacia por ahora para que podamos construirla despues sobre la misma base de datos.</p>
             </section>
           ) : null}
 
@@ -658,8 +732,9 @@ export default function HomePage() {
             <section className="panel-card blank-panel">
               <div className="panel-heading">
                 <h2>Graficos</h2>
-                <p>Esta pestana queda en blanco por ahora.</p>
+                <p>Esta pestana queda reservada para indicadores y visualizaciones.</p>
               </div>
+              <p className="placeholder-copy">Cuando quieras, aqui armamos barras, lineas y distribuciones por categoria.</p>
             </section>
           ) : null}
         </div>
@@ -877,5 +952,19 @@ function labelVersion(version) {
 
 function toUsdAmount(expense) {
   return Number(expense.amount) || 0;
+}
+
+function formatDateLabel(value) {
+  if (!value) return "Sin fecha";
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+  return new Intl.DateTimeFormat("es-CL", { dateStyle: "short" }).format(date);
+}
+
+function formatTimestampLabel(value) {
+  if (!value) return "Sin fecha";
+  const date = new Date(Number(value));
+  if (Number.isNaN(date.getTime())) return "Sin fecha";
+  return new Intl.DateTimeFormat("es-CL", { dateStyle: "short" }).format(date);
 }
 
