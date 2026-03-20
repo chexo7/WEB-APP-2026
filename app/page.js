@@ -3,10 +3,7 @@
 import { useEffect, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { onValue, ref, set } from "firebase/database";
-import { auth, database } from "@/lib/firebase";
-
-const connectionRef = ref(database, ".info/connected");
-const landingRef = ref(database, "landing");
+import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 
 const defaultCredentials = {
   email: "ssfamiliausa@gmail.com",
@@ -32,6 +29,11 @@ export default function HomePage() {
   const [userEmail, setUserEmail] = useState("");
 
   useEffect(() => {
+    const auth = getFirebaseAuth();
+    const database = getFirebaseDatabase();
+    const connectionRef = ref(database, ".info/connected");
+    const landingRef = ref(database, "landing");
+
     const unsubscribeAuth = onAuthStateChanged(auth, (user) => {
       setAuthState(user ? "authenticated" : "anonymous");
       setUserEmail(user?.email ?? "");
@@ -78,6 +80,7 @@ export default function HomePage() {
     setAuthState("loading");
 
     try {
+      const auth = getFirebaseAuth();
       await signInWithEmailAndPassword(auth, credentials.email.trim(), credentials.password);
     } catch (firebaseError) {
       setAuthState("anonymous");
@@ -89,6 +92,7 @@ export default function HomePage() {
     setAuthError("");
 
     try {
+      const auth = getFirebaseAuth();
       await signOut(auth);
     } catch (firebaseError) {
       setAuthError(firebaseError.message);
@@ -101,6 +105,8 @@ export default function HomePage() {
     setSaveError("");
 
     try {
+      const database = getFirebaseDatabase();
+      const landingRef = ref(database, "landing");
       const nextContent = {
         title: draft.title.trim(),
         description: draft.description.trim(),
