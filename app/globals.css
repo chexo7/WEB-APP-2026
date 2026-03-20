@@ -26,7 +26,9 @@ body {
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: Georgia, "Times New Roman", serif;
+  font-family: "Palatino Linotype", "Book Antiqua", Georgia, serif;
+  font-size: 14px;
+  line-height: 1.45;
   background:
     radial-gradient(circle at top, rgba(15, 118, 110, 0.12), transparent 30%),
     linear-gradient(180deg, #efe7da 0%, var(--bg) 100%);
@@ -80,7 +82,7 @@ select {
 }
 
 .login-form h1 {
-  font-size: clamp(2rem, 5vw, 2.7rem);
+  font-size: clamp(1.65rem, 4vw, 2.2rem);
 }
 
 .login-form label,
@@ -88,7 +90,7 @@ select {
 .history-control {
   display: grid;
   gap: 0.45rem;
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 700;
 }
 
@@ -97,7 +99,7 @@ select {
 .entry-form select,
 .history-control select {
   width: 100%;
-  padding: 0.95rem 1rem;
+  padding: 0.78rem 0.9rem;
   border-radius: 16px;
   border: 1px solid var(--border);
   background: #fff;
@@ -109,7 +111,8 @@ select {
 .danger-button,
 .tab-button {
   border-radius: 999px;
-  padding: 0.9rem 1.1rem;
+  padding: 0.72rem 0.95rem;
+  font-size: 0.88rem;
   font-weight: 700;
   cursor: pointer;
 }
@@ -154,10 +157,12 @@ select {
 
 .error-text {
   color: var(--danger);
+  font-size: 0.85rem;
 }
 
 .success-text {
   color: var(--success);
+  font-size: 0.85rem;
 }
 
 .muted-text,
@@ -171,9 +176,9 @@ select {
 .eyebrow {
   margin: 0 0 0.5rem;
   color: var(--accent-strong);
-  font-size: 0.82rem;
+  font-size: 0.72rem;
   font-weight: 700;
-  letter-spacing: 0.14em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
@@ -187,7 +192,7 @@ select {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.5rem;
+  padding: 1.2rem;
 }
 
 .topbar-actions {
@@ -203,9 +208,10 @@ select {
 
 .status-chip,
 .user-chip {
-  padding: 0.85rem 1rem;
+  padding: 0.7rem 0.9rem;
   border-radius: 999px;
   border: 1px solid var(--border);
+  font-size: 0.82rem;
 }
 
 .status-chip.pending {
@@ -221,18 +227,18 @@ select {
 }
 
 .summary-card {
-  padding: 1.25rem;
+  padding: 1rem;
   display: grid;
   gap: 0.4rem;
 }
 
 .summary-card strong {
-  font-size: clamp(1.4rem, 3vw, 2rem);
+  font-size: clamp(1.1rem, 2.4vw, 1.55rem);
 }
 
 .tabs-card {
   margin-top: 1rem;
-  padding: 1rem;
+  padding: 0.9rem;
 }
 
 .tabs-bar {
@@ -252,7 +258,7 @@ select {
 }
 
 .panel-card {
-  padding: 1.4rem;
+  padding: 1.1rem;
 }
 
 .panel-heading p {
@@ -274,7 +280,7 @@ select {
   display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1rem;
+  padding: 0.85rem;
   border-radius: 22px;
   border: 1px solid var(--border);
   background: #fffdf9;
@@ -287,7 +293,7 @@ select {
 
 .record-main strong,
 .record-side strong {
-  font-size: 1rem;
+  font-size: 0.92rem;
 }
 
 .record-side {
