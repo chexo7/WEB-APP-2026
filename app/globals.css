@@ -348,11 +348,17 @@ button {
   gap: 0.9rem;
 }
 
-.expense-tab-header {
+.incomes-stack {
+  gap: 0.9rem;
+}
+
+.expense-tab-header,
+.income-tab-header {
   padding: 0.15rem 0;
 }
 
-.expense-tab-header h2 {
+.expense-tab-header h2,
+.income-tab-header h2 {
   margin: 0;
   color: #0a67f2;
   font-size: 1.05rem;
@@ -382,31 +388,37 @@ button {
   max-width: 780px;
 }
 
-.expense-entry-form {
+.expense-entry-form,
+.income-entry-form {
   gap: 0;
   padding: 0;
   overflow: hidden;
   background: #fbfcff;
 }
 
-.expense-form-title {
+.expense-form-title,
+.income-form-title {
   padding: 0.95rem 1rem 0.7rem;
   border-bottom: 1px solid rgba(87, 112, 144, 0.22);
 }
 
-.expense-form-title h3 {
+.expense-form-title h3,
+.income-form-title h3 {
   margin: 0;
   font-size: 0.92rem;
   font-weight: 600;
   color: var(--text);
 }
 
-.expense-form-grid {
+.expense-form-grid,
+.income-form-grid {
   display: grid;
   gap: 0;
 }
 
-.expense-field {
+.expense-field,
+.income-field,
+.income-reimbursement-field {
   gap: 0.45rem;
   padding: 0.7rem 1rem 0.85rem;
   border-bottom: 1px solid rgba(87, 112, 144, 0.18);
@@ -420,7 +432,10 @@ button {
 }
 
 .expense-field input,
-.expense-field select {
+.expense-field select,
+.income-field input,
+.income-field select,
+.income-reimbursement-field select {
   min-height: 38px;
   border: 1px solid rgba(120, 140, 166, 0.42);
   border-radius: 12px;
@@ -429,23 +444,35 @@ button {
   font-size: 0.82rem;
 }
 
-.expense-field input:disabled {
+.expense-field input:disabled,
+.income-field input:disabled {
   background: #eef2f7;
   color: #7d8ca1;
 }
 
-.expense-checkbox {
+.expense-checkbox,
+.income-checkbox {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.9rem 1rem 0.4rem;
-  border-bottom: 1px solid rgba(87, 112, 144, 0.18);
   color: #22364d;
   font-size: 0.82rem;
   font-weight: 500;
 }
 
-.expense-checkbox input {
+.expense-checkbox {
+  padding: 0.9rem 1rem 0.4rem;
+  border-bottom: 1px solid rgba(87, 112, 144, 0.18);
+}
+
+.income-checkbox-group {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.9rem 1rem 0.4rem;
+}
+
+.expense-checkbox input,
+.income-checkbox input {
   width: 14px;
   height: 14px;
   min-height: 14px;
@@ -482,21 +509,28 @@ button {
 
 .expense-entry-form .button-row,
 .expense-entry-form .success-text,
-.expense-entry-form .error-text {
+.expense-entry-form .error-text,
+.income-entry-form .button-row,
+.income-entry-form .success-text,
+.income-entry-form .error-text {
   padding-left: 1rem;
   padding-right: 1rem;
 }
 
-.expense-entry-form .button-row:first-of-type {
+.expense-entry-form .button-row:first-of-type,
+.income-entry-form .button-row:first-of-type {
   padding-top: 0.95rem;
 }
 
-.expense-entry-form .button-row:last-of-type {
+.expense-entry-form .button-row:last-of-type,
+.income-entry-form .button-row:last-of-type {
   padding-bottom: 0.35rem;
 }
 
 .expense-entry-form .success-text,
-.expense-entry-form .error-text {
+.expense-entry-form .error-text,
+.income-entry-form .success-text,
+.income-entry-form .error-text {
   padding-bottom: 1rem;
 }
 

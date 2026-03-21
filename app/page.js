@@ -43,6 +43,8 @@ const expenseCurrencies = [
   { value: "USD", label: "USD - Dolar Estadounidense" },
   { value: "CLP", label: "CLP - Peso Chileno" },
 ];
+const incomeFrequencies = ["Mensual", "Semanal", "Bi-semanal", "Unico"];
+const incomeCurrencies = expenseCurrencies;
 
 export default function HomePage() {
   const [credentials, setCredentials] = useState(defaultCredentials);
@@ -195,12 +197,32 @@ export default function HomePage() {
     () =>
       Object.entries(draft.incomes)
         .map(([id, value]) => ({ id, ...value }))
-        .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0)),
+        .sort(
+          (a, b) =>
+            (b.startDate ?? "").localeCompare(a.startDate ?? "") || (b.createdAt ?? 0) - (a.createdAt ?? 0),
+        ),
     [draft.incomes],
   );
 
-  const incomeTotal = incomes.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
-  const expenseTotal = expenses.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const reimbursementTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? Number(item.amount) || 0 : 0), 0);
+  const incomeTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? 0 : Number(item.amount) || 0), 0);
+  const expenseCategoryTotals = useMemo(() => {
+    const totals = Object.fromEntries(expenseCategories.map((category) => [category, 0]));
+
+    for (const expense of expenses) {
+      const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
+      totals[category] = (totals[category] ?? 0) + (Number(expense.amount) || 0);
+    }
+
+    for (const income of incomes) {
+      if (!income.isReimbursement) continue;
+      const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
+      totals[category] = (totals[category] ?? 0) - (Number(income.amount) || 0);
+    }
+
+    return totals;
+  }, [expenses, incomes]);
+  const expenseTotal = Object.values(expenseCategoryTotals).reduce((sum, amount) => sum + (Number(amount) || 0), 0);
   const balance = incomeTotal - expenseTotal;
   const hasUnsavedChanges = JSON.stringify(sanitizeWorkspace(draft)) !== JSON.stringify(sanitizeWorkspace(selectedVersion?.payload));
 
@@ -281,7 +303,13 @@ export default function HomePage() {
         [incomeId]: {
           name: incomeForm.name.trim(),
           amount: Number(incomeForm.amount),
-          recurrence: incomeForm.recurrence.trim(),
+          currency: incomeForm.currency,
+          frequency: incomeForm.frequency,
+          startDate: incomeForm.startDate,
+          endDate: incomeForm.isRecurringIndefinite ? "" : incomeForm.endDate,
+          isRecurringIndefinite: Boolean(incomeForm.isRecurringIndefinite),
+          isReimbursement: Boolean(incomeForm.isReimbursement),
+          reimbursementCategory: incomeForm.isReimbursement ? incomeForm.reimbursementCategory : "",
           createdAt: current.incomes?.[incomeId]?.createdAt ?? Date.now(),
         },
       },
@@ -319,7 +347,13 @@ export default function HomePage() {
     setIncomeForm({
       name: income.name ?? "",
       amount: String(income.amount ?? ""),
-      recurrence: income.recurrence ?? "",
+      currency: income.currency ?? "USD",
+      frequency: income.frequency ?? "Mensual",
+      startDate: income.startDate ?? localDate(),
+      endDate: income.endDate ?? "",
+      isRecurringIndefinite: Boolean(income.isRecurringIndefinite),
+      isReimbursement: Boolean(income.isReimbursement),
+      reimbursementCategory: income.reimbursementCategory ?? "",
     });
     setEditingIncomeId(incomeId);
     setActiveTab("incomes");
@@ -502,15 +536,15 @@ export default function HomePage() {
             <section className="summary-panel">
               <div className="summary-grid">
                 <article className="summary-card">
-                  <span>Version activa</span>
-                  <strong>{selectedVersion ? selectedVersion.snapshotDate : "Sin datos"}</strong>
-                </article>
-                <article className="summary-card">
-                  <span>Total ingresos</span>
+                  <span>Ingresos reales</span>
                   <strong>{money(incomeTotal, "USD")}</strong>
                 </article>
                 <article className="summary-card">
-                  <span>Total gastos</span>
+                  <span>Reembolsos aplicados</span>
+                  <strong>{money(reimbursementTotal, "USD")}</strong>
+                </article>
+                <article className="summary-card">
+                  <span>Gastos netos</span>
                   <strong>{money(expenseTotal, "USD")}</strong>
                 </article>
                 <article className="summary-card">
@@ -527,12 +561,20 @@ export default function HomePage() {
 
                 <div className="summary-meta">
                   <div>
+                    <span className="summary-meta-label">Version activa</span>
+                    <strong>{selectedVersion ? selectedVersion.snapshotDate : "Sin datos"}</strong>
+                  </div>
+                  <div>
                     <span className="summary-meta-label">Entrada seleccionada</span>
                     <strong>{selectedVersion ? labelVersion(selectedVersion) : "Sin historial todavia"}</strong>
                   </div>
                   <div>
                     <span className="summary-meta-label">Registros en borrador</span>
                     <strong>{expenses.length + incomes.length} movimientos</strong>
+                  </div>
+                  <div>
+                    <span className="summary-meta-label">Criterio aplicado</span>
+                    <strong>Los reembolsos descuentan gastos y no suman como ingreso real.</strong>
                   </div>
                 </div>
               </section>
@@ -703,31 +745,106 @@ export default function HomePage() {
           ) : null}
 
           {activeTab === "incomes" ? (
-            <section className="workspace-stack">
-              <form className="panel-card panel-frame entry-form" onSubmit={saveIncomeToDraft}>
-                <div className="panel-heading">
-                  <h2>{editingIncomeId ? "Modificar entrada (ingreso)" : "Agregar entrada (ingreso)"}</h2>
-                  <p>Deja listos los ingresos del borrador y luego genera una nueva entrada cuando estes seguro.</p>
+            <section className="workspace-stack incomes-stack">
+              <div className="income-tab-header">
+                <h2>Gestion de Ingresos</h2>
+              </div>
+
+              <form className="panel-card panel-frame entry-form income-entry-form" onSubmit={saveIncomeToDraft}>
+                <div className="income-form-title">
+                  <h3>{editingIncomeId ? "Modificar Ingreso" : "Registrar Nuevo Ingreso"}</h3>
                 </div>
 
-                <div className="form-grid form-grid-incomes">
-                  <label>
-                    Nombre
+                <div className="income-form-grid">
+                  <label className="income-field">
+                    Nombre:
                     <input name="name" onChange={(e) => setIncomeForm((c) => ({ ...c, name: e.target.value }))} value={incomeForm.name} />
                   </label>
-                  <label>
-                    Valor
+                  <label className="income-field">
+                    Monto Neto:
                     <input inputMode="decimal" name="amount" onChange={(e) => setIncomeForm((c) => ({ ...c, amount: e.target.value }))} value={incomeForm.amount} />
                   </label>
-                  <label>
-                    Recurrencia
-                    <input name="recurrence" onChange={(e) => setIncomeForm((c) => ({ ...c, recurrence: e.target.value }))} value={incomeForm.recurrence} />
+                  <label className="income-field">
+                    Moneda:
+                    <select name="currency" onChange={(e) => setIncomeForm((c) => ({ ...c, currency: e.target.value }))} value={incomeForm.currency}>
+                      {incomeCurrencies.map((currencyOption) => (
+                        <option key={currencyOption.value} value={currencyOption.value}>
+                          {currencyOption.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="income-field">
+                    Frecuencia:
+                    <select name="frequency" onChange={(e) => setIncomeForm((c) => ({ ...c, frequency: e.target.value }))} value={incomeForm.frequency}>
+                      {incomeFrequencies.map((frequency) => (
+                        <option key={frequency} value={frequency}>
+                          {frequency}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="income-field">
+                    Fecha Inicio / Unica:
+                    <input name="startDate" onChange={(e) => setIncomeForm((c) => ({ ...c, startDate: e.target.value }))} type="date" value={incomeForm.startDate} />
+                  </label>
+                  <label className="income-field">
+                    Fecha Fin (si aplica):
+                    <input
+                      disabled={incomeForm.isRecurringIndefinite}
+                      name="endDate"
+                      onChange={(e) => setIncomeForm((c) => ({ ...c, endDate: e.target.value }))}
+                      type="date"
+                      value={incomeForm.endDate}
+                    />
                   </label>
                 </div>
 
-                <div className="button-row">
+                <div className="income-checkbox-group">
+                  <label className="income-checkbox">
+                    <input
+                      checked={incomeForm.isRecurringIndefinite}
+                      name="isRecurringIndefinite"
+                      onChange={(e) => setIncomeForm((c) => ({ ...c, isRecurringIndefinite: e.target.checked, endDate: e.target.checked ? "" : c.endDate }))}
+                      type="checkbox"
+                    />
+                    Ingreso recurrente sin fin
+                  </label>
+
+                  <label className="income-checkbox">
+                    <input
+                      checked={incomeForm.isReimbursement}
+                      name="isReimbursement"
+                      onChange={(e) => setIncomeForm((c) => ({ ...c, isReimbursement: e.target.checked, reimbursementCategory: e.target.checked ? c.reimbursementCategory : "" }))}
+                      type="checkbox"
+                    />
+                    Es un reembolso
+                  </label>
+                </div>
+
+                {incomeForm.isReimbursement ? (
+                  <label className="income-field income-reimbursement-field">
+                    Categoria que se ajusta:
+                    <select
+                      name="reimbursementCategory"
+                      onChange={(e) => setIncomeForm((c) => ({ ...c, reimbursementCategory: e.target.value }))}
+                      value={incomeForm.reimbursementCategory}
+                    >
+                      <option value="" disabled>
+                        -- Selecciona Categoria --
+                      </option>
+                      {expenseCategories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                ) : null}
+
+                <div className="button-row income-button-row">
                   <button className="primary-button" type="submit">
-                    {editingIncomeId ? "Actualizar ingreso" : "Anadir ingreso"}
+                    {editingIncomeId ? "Actualizar ingreso" : "Agregar Ingreso"}
                   </button>
                   <button
                     className="secondary-button"
@@ -741,7 +858,7 @@ export default function HomePage() {
                   </button>
                 </div>
 
-                <div className="button-row">
+                <div className="button-row income-button-row">
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
@@ -757,7 +874,7 @@ export default function HomePage() {
               <section className="panel-card panel-frame panel-table">
                 <div className="panel-heading">
                   <h2>Lista de ingresos</h2>
-                  <p>Cada ingreso del borrador queda editable antes de guardarlo como nueva entrada.</p>
+                  <p>Los reembolsos ajustan la categoria indicada y no se suman como ingreso real.</p>
                 </div>
 
                 <div className="table-wrap">
@@ -765,9 +882,11 @@ export default function HomePage() {
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Fecha</th>
+                          <th>Fecha Inicio</th>
                           <th>Nombre</th>
-                          <th>Recurrencia</th>
+                          <th>Tipo</th>
+                          <th>Frecuencia</th>
+                          <th>Fecha Fin</th>
                           <th>Monto</th>
                           <th>Acciones</th>
                         </tr>
@@ -775,10 +894,18 @@ export default function HomePage() {
                       <tbody>
                         {incomes.map((income) => (
                           <tr key={income.id}>
-                            <td>{formatTimestampLabel(income.createdAt)}</td>
+                            <td>{income.startDate ? formatDateLabel(income.startDate) : formatTimestampLabel(income.createdAt)}</td>
                             <td>{income.name || "Sin nombre"}</td>
-                            <td>{income.recurrence || "Sin recurrencia"}</td>
-                            <td className="amount-cell">{money(income.amount, "USD")}</td>
+                            <td>
+                              <strong>{income.isReimbursement ? "Reembolso" : "Ingreso real"}</strong>
+                              <span>{income.isReimbursement ? income.reimbursementCategory || "Sin categoria" : "Impacta ingresos"}</span>
+                            </td>
+                            <td>
+                              <strong>{income.frequency || "Mensual"}</strong>
+                              <span>{income.isRecurringIndefinite ? "Recurrente sin fin" : "Segun configuracion"}</span>
+                            </td>
+                            <td>{income.isRecurringIndefinite ? "Sin fin" : income.endDate ? formatDateLabel(income.endDate) : "No aplica"}</td>
+                            <td className="amount-cell">{money(income.amount, income.currency || "USD")}</td>
                             <td className="actions-cell">
                               <div className="table-actions">
                                 <button className="secondary-button" onClick={() => editIncome(income.id)} type="button">Modificar</button>
@@ -870,7 +997,17 @@ function defaultExpenseForm() {
 }
 
 function defaultIncomeForm() {
-  return { name: "", amount: "", recurrence: "" };
+  return {
+    name: "",
+    amount: "",
+    currency: "USD",
+    frequency: "Mensual",
+    startDate: localDate(),
+    endDate: "",
+    isRecurringIndefinite: true,
+    isReimbursement: false,
+    reimbursementCategory: "",
+  };
 }
 
 function localId(prefix) {
@@ -924,7 +1061,13 @@ function sanitizeWorkspace(workspace) {
         {
           name: String(value?.name ?? "").trim(),
           amount: Number(value?.amount) || 0,
-          recurrence: String(value?.recurrence ?? "").trim(),
+          currency: value?.currency === "CLP" ? "CLP" : "USD",
+          frequency: incomeFrequencies.includes(String(value?.frequency ?? value?.recurrence ?? "")) ? String(value?.frequency ?? value?.recurrence) : "Unico",
+          startDate: String(value?.startDate ?? localDate(new Date(Number(value?.createdAt) || Date.now()))),
+          endDate: String(value?.endDate ?? "").trim(),
+          isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
+          isReimbursement: Boolean(value?.isReimbursement),
+          reimbursementCategory: expenseCategories.includes(String(value?.reimbursementCategory ?? "")) ? String(value?.reimbursementCategory) : "",
           createdAt: Number(value?.createdAt) || Date.now(),
         },
       ]),
@@ -940,7 +1083,13 @@ function convertLegacyEntries(entries, updatedAt = Date.now()) {
       workspace.incomes[id] = {
         name: String(value?.description ?? "").trim(),
         amount: Number(value?.amount) || 0,
-        recurrence: "",
+        currency: "USD",
+        frequency: "Unico",
+        startDate: localDate(new Date(Number(value?.createdAt) || Date.now())),
+        endDate: "",
+        isRecurringIndefinite: false,
+        isReimbursement: false,
+        reimbursementCategory: "",
         createdAt: Number(value?.createdAt) || Date.now(),
       };
     } else {
@@ -1007,6 +1156,11 @@ function validateExpense(expense) {
 function validateIncome(income) {
   if (!String(income.name ?? "").trim()) return "El ingreso debe tener nombre.";
   if (!Number.isFinite(Number(income.amount)) || Number(income.amount) <= 0) return "El ingreso debe tener un valor mayor que cero.";
+  if (!incomeFrequencies.includes(String(income.frequency ?? ""))) return "Selecciona una frecuencia valida para el ingreso.";
+  if (!String(income.startDate ?? "").trim()) return "El ingreso debe tener fecha de inicio o unica.";
+  if (income.isReimbursement && !expenseCategories.includes(String(income.reimbursementCategory ?? ""))) {
+    return "Selecciona la categoria que se debe ajustar con el reembolso.";
+  }
   return "";
 }
 
