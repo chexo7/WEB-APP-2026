@@ -13,6 +13,36 @@ const tabs = [
   { id: "cashflow", label: "Tabla" },
   { id: "charts", label: "Graficos" },
 ];
+const expenseCategories = [
+  "Ahorros",
+  "Arriendo",
+  "Auto",
+  "Cosas de Casa",
+  "Creditos",
+  "Cuentas",
+  "Delivery",
+  "Deporte",
+  "Gastos Comunes",
+  "Inversiones",
+  "Minimarket",
+  "Otros",
+  "Panoramas",
+  "Regalos para alguien",
+  "Ropa",
+  "Salidas a comer",
+  "Salud",
+  "Supermercado",
+  "Suscripciones",
+  "Transporte Publico",
+  "Uber",
+  "Vega",
+  "Viajes",
+];
+const expenseFrequencies = ["Unico", "Mensual", "Semanal", "Bi-semanal"];
+const expenseCurrencies = [
+  { value: "USD", label: "USD - Dolar Estadounidense" },
+  { value: "CLP", label: "CLP - Peso Chileno" },
+];
 
 export default function HomePage() {
   const [credentials, setCredentials] = useState(defaultCredentials);
@@ -154,7 +184,10 @@ export default function HomePage() {
     () =>
       Object.entries(draft.expenses)
         .map(([id, value]) => ({ id, ...value }))
-        .sort((a, b) => (b.date ?? "").localeCompare(a.date ?? "") || (b.createdAt ?? 0) - (a.createdAt ?? 0)),
+        .sort(
+          (a, b) =>
+            (b.movementDate ?? b.date ?? "").localeCompare(a.movementDate ?? a.date ?? "") || (b.createdAt ?? 0) - (a.createdAt ?? 0),
+        ),
     [draft.expenses],
   );
 
@@ -210,13 +243,14 @@ export default function HomePage() {
       expenses: {
         ...current.expenses,
         [expenseId]: {
-          detail: expenseForm.detail.trim(),
-          frequency: expenseForm.frequency.trim(),
-          date: expenseForm.date,
+          name: expenseForm.name.trim(),
           amount: Number(expenseForm.amount),
           currency: expenseForm.currency,
-          merchantName: expenseForm.merchantName.trim(),
-          recurrence: expenseForm.recurrence.trim(),
+          category: expenseForm.category,
+          frequency: expenseForm.frequency,
+          movementDate: expenseForm.movementDate,
+          endDate: expenseForm.isRecurringIndefinite ? "" : expenseForm.endDate,
+          isRecurringIndefinite: Boolean(expenseForm.isRecurringIndefinite),
           createdAt: current.expenses?.[expenseId]?.createdAt ?? Date.now(),
         },
       },
@@ -265,13 +299,14 @@ export default function HomePage() {
     if (!expense) return;
 
     setExpenseForm({
-      detail: expense.detail ?? "",
-      frequency: expense.frequency ?? "",
-      date: expense.date ?? localDate(),
+      name: expense.name ?? expense.merchantName ?? expense.detail ?? "",
       amount: String(expense.amount ?? ""),
-      currency: expense.currency ?? "CLP",
-      merchantName: expense.merchantName ?? "",
-      recurrence: expense.recurrence ?? "",
+      currency: expense.currency ?? "USD",
+      category: expense.category ?? "Ahorros",
+      frequency: expense.frequency ?? "Unico",
+      movementDate: expense.movementDate ?? expense.date ?? localDate(),
+      endDate: expense.endDate ?? "",
+      isRecurringIndefinite: Boolean(expense.isRecurringIndefinite),
     });
     setEditingExpenseId(expenseId);
     setActiveTab("expenses");
@@ -505,46 +540,88 @@ export default function HomePage() {
           ) : null}
 
           {activeTab === "expenses" ? (
-            <section className="workspace-stack">
-              <form className="panel-card panel-frame entry-form" onSubmit={saveExpenseToDraft}>
-                <div className="panel-heading">
-                  <h2>{editingExpenseId ? "Modificar entrada (gasto)" : "Agregar entrada (gasto)"}</h2>
-                  <p>Registra los datos principales del gasto y dejalos listos en el borrador antes de guardar la entrada.</p>
+            <section className="workspace-stack expenses-stack">
+              <div className="expense-tab-header">
+                <h2>Gestion de Gastos</h2>
+              </div>
+
+              <form className="panel-card panel-frame entry-form expense-entry-form" onSubmit={saveExpenseToDraft}>
+                <div className="expense-form-title">
+                  <h3>{editingExpenseId ? "Modificar Gasto" : "Registrar Nuevo Gasto"}</h3>
                 </div>
 
-                <div className="form-grid form-grid-expenses">
-                  <label className="field-wide">
-                    Datos
-                    <input name="detail" onChange={(e) => setExpenseForm((c) => ({ ...c, detail: e.target.value }))} value={expenseForm.detail} />
+                <div className="expense-form-grid">
+                  <label className="expense-field expense-field-full">
+                    Nombre:
+                    <input name="name" onChange={(e) => setExpenseForm((c) => ({ ...c, name: e.target.value }))} value={expenseForm.name} />
                   </label>
-                  <label>
-                    Frecuencia
-                    <input name="frequency" onChange={(e) => setExpenseForm((c) => ({ ...c, frequency: e.target.value }))} value={expenseForm.frequency} />
-                  </label>
-                  <label>
-                    Fecha
-                    <input name="date" onChange={(e) => setExpenseForm((c) => ({ ...c, date: e.target.value }))} type="date" value={expenseForm.date} />
-                  </label>
-                  <label>
-                    Valor
+                  <label className="expense-field">
+                    Monto:
                     <input inputMode="decimal" name="amount" onChange={(e) => setExpenseForm((c) => ({ ...c, amount: e.target.value }))} value={expenseForm.amount} />
                   </label>
-                  <label>
-                    Moneda
+                  <label className="expense-field">
+                    Moneda:
                     <select name="currency" onChange={(e) => setExpenseForm((c) => ({ ...c, currency: e.target.value }))} value={expenseForm.currency}>
-                      <option value="CLP">CLP</option>
-                      <option value="USD">USD</option>
+                      {expenseCurrencies.map((currencyOption) => (
+                        <option key={currencyOption.value} value={currencyOption.value}>
+                          {currencyOption.label}
+                        </option>
+                      ))}
                     </select>
                   </label>
-                  <label>
-                    Nombre del comercio
-                    <input name="merchantName" onChange={(e) => setExpenseForm((c) => ({ ...c, merchantName: e.target.value }))} value={expenseForm.merchantName} />
+                  <label className="expense-field">
+                    Categoria:
+                    <select name="category" onChange={(e) => setExpenseForm((c) => ({ ...c, category: e.target.value }))} value={expenseForm.category}>
+                      <option value="" disabled>
+                        -- Selecciona Categoria --
+                      </option>
+                      {expenseCategories.map((category) => (
+                        <option key={category} value={category}>
+                          {category}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                  <label>
-                    Recurrencia
-                    <input name="recurrence" onChange={(e) => setExpenseForm((c) => ({ ...c, recurrence: e.target.value }))} value={expenseForm.recurrence} />
+                  <label className="expense-field">
+                    Frecuencia:
+                    <select name="frequency" onChange={(e) => setExpenseForm((c) => ({ ...c, frequency: e.target.value }))} value={expenseForm.frequency}>
+                      {expenseFrequencies.map((frequency) => (
+                        <option key={frequency} value={frequency}>
+                          {frequency}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="expense-field">
+                    Fecha Movimiento:
+                    <input
+                      name="movementDate"
+                      onChange={(e) => setExpenseForm((c) => ({ ...c, movementDate: e.target.value }))}
+                      type="date"
+                      value={expenseForm.movementDate}
+                    />
+                  </label>
+                  <label className="expense-field">
+                    Fecha Fin (si aplica):
+                    <input
+                      disabled={expenseForm.isRecurringIndefinite}
+                      name="endDate"
+                      onChange={(e) => setExpenseForm((c) => ({ ...c, endDate: e.target.value }))}
+                      type="date"
+                      value={expenseForm.endDate}
+                    />
                   </label>
                 </div>
+
+                <label className="expense-checkbox">
+                  <input
+                    checked={expenseForm.isRecurringIndefinite}
+                    name="isRecurringIndefinite"
+                    onChange={(e) => setExpenseForm((c) => ({ ...c, isRecurringIndefinite: e.target.checked, endDate: e.target.checked ? "" : c.endDate }))}
+                    type="checkbox"
+                  />
+                  Gasto recurrente sin fin
+                </label>
 
                 <div className="button-row">
                   <button className="primary-button" type="submit">
@@ -586,10 +663,11 @@ export default function HomePage() {
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Fecha</th>
-                          <th>Datos</th>
+                          <th>Fecha Movimiento</th>
+                          <th>Nombre</th>
+                          <th>Categoria</th>
                           <th>Frecuencia</th>
-                          <th>Comercio</th>
+                          <th>Fecha Fin</th>
                           <th>Monto</th>
                           <th>Acciones</th>
                         </tr>
@@ -597,13 +675,14 @@ export default function HomePage() {
                       <tbody>
                         {expenses.map((expense) => (
                           <tr key={expense.id}>
-                            <td>{formatDateLabel(expense.date)}</td>
+                            <td>{formatDateLabel(expense.movementDate ?? expense.date)}</td>
+                            <td>{expense.name ?? expense.merchantName ?? expense.detail ?? "Sin nombre"}</td>
+                            <td>{expense.category || "Otros"}</td>
                             <td>
-                              <strong>{expense.detail || "Sin detalle"}</strong>
-                              <span>{expense.recurrence || "Sin recurrencia"}</span>
+                              <strong>{expense.frequency || "Unico"}</strong>
+                              <span>{expense.isRecurringIndefinite ? "Recurrente sin fin" : "Segun configuracion"}</span>
                             </td>
-                            <td>{expense.frequency || "Sin frecuencia"}</td>
-                            <td>{expense.merchantName || "Sin comercio"}</td>
+                            <td>{expense.isRecurringIndefinite ? "Sin fin" : expense.endDate ? formatDateLabel(expense.endDate) : "No aplica"}</td>
                             <td className="amount-cell">{money(expense.amount, expense.currency)}</td>
                             <td className="actions-cell">
                               <div className="table-actions">
@@ -778,7 +857,16 @@ function emptyWorkspace() {
 }
 
 function defaultExpenseForm() {
-  return { detail: "", frequency: "", date: localDate(), amount: "", currency: "CLP", merchantName: "", recurrence: "" };
+  return {
+    name: "",
+    amount: "",
+    currency: "USD",
+    category: "Ahorros",
+    frequency: "Unico",
+    movementDate: localDate(),
+    endDate: "",
+    isRecurringIndefinite: false,
+  };
 }
 
 function defaultIncomeForm() {
@@ -818,13 +906,14 @@ function sanitizeWorkspace(workspace) {
       Object.entries(workspace?.expenses ?? {}).map(([id, value]) => [
         id,
         {
-          detail: String(value?.detail ?? "").trim(),
-          frequency: String(value?.frequency ?? "").trim(),
-          date: String(value?.date ?? localDate()),
+          name: String(value?.name ?? value?.merchantName ?? value?.detail ?? "").trim(),
           amount: Number(value?.amount) || 0,
-          currency: value?.currency === "USD" ? "USD" : "CLP",
-          merchantName: String(value?.merchantName ?? "").trim(),
-          recurrence: String(value?.recurrence ?? "").trim(),
+          currency: value?.currency === "CLP" ? "CLP" : "USD",
+          category: expenseCategories.includes(String(value?.category ?? "")) ? String(value?.category) : "Otros",
+          frequency: expenseFrequencies.includes(String(value?.frequency ?? "")) ? String(value?.frequency) : "Unico",
+          movementDate: String(value?.movementDate ?? value?.date ?? localDate()),
+          endDate: String(value?.endDate ?? "").trim(),
+          isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
           createdAt: Number(value?.createdAt) || Date.now(),
         },
       ]),
@@ -856,13 +945,14 @@ function convertLegacyEntries(entries, updatedAt = Date.now()) {
       };
     } else {
       workspace.expenses[id] = {
-        detail: String(value?.description ?? "").trim(),
-        frequency: "",
-        date: localDate(new Date(Number(value?.createdAt) || Date.now())),
+        name: String(value?.description ?? "").trim(),
         amount: Number(value?.amount) || 0,
         currency: "USD",
-        merchantName: "",
-        recurrence: "",
+        category: "Otros",
+        frequency: "Unico",
+        movementDate: localDate(new Date(Number(value?.createdAt) || Date.now())),
+        endDate: "",
+        isRecurringIndefinite: false,
         createdAt: Number(value?.createdAt) || Date.now(),
       };
     }
@@ -906,10 +996,11 @@ function buildKey(snapshotDate, versionId) {
 }
 
 function validateExpense(expense) {
-  if (!String(expense.detail ?? "").trim()) return "El gasto debe tener datos o detalle.";
-  if (!String(expense.date ?? "").trim()) return "El gasto debe tener fecha.";
-  if (!String(expense.merchantName ?? "").trim()) return "El gasto debe tener nombre del comercio.";
+  if (!String(expense.name ?? "").trim()) return "El gasto debe tener nombre.";
   if (!Number.isFinite(Number(expense.amount)) || Number(expense.amount) <= 0) return "El gasto debe tener un valor mayor que cero.";
+  if (!expenseCategories.includes(String(expense.category ?? ""))) return "Selecciona una categoria valida para el gasto.";
+  if (!expenseFrequencies.includes(String(expense.frequency ?? ""))) return "Selecciona una frecuencia valida para el gasto.";
+  if (!String(expense.movementDate ?? "").trim()) return "El gasto debe tener fecha de movimiento.";
   return "";
 }
 
