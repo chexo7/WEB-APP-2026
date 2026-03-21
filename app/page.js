@@ -64,6 +64,8 @@ export default function HomePage() {
   const [saveState, setSaveState] = useState("idle");
   const [dataError, setDataError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
+  const [expenseSort, setExpenseSort] = useState({ key: "movementDate", direction: "desc" });
+  const [incomeSort, setIncomeSort] = useState({ key: "startDate", direction: "desc" });
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -182,27 +184,10 @@ export default function HomePage() {
   const selectedVersion =
     recentVersions.find((version) => version.key === selectedVersionKey) ?? recentVersions[0] ?? null;
 
-  const expenses = useMemo(
-    () =>
-      Object.entries(draft.expenses)
-        .map(([id, value]) => ({ id, ...value }))
-        .sort(
-          (a, b) =>
-            (b.movementDate ?? b.date ?? "").localeCompare(a.movementDate ?? a.date ?? "") || (b.createdAt ?? 0) - (a.createdAt ?? 0),
-        ),
-    [draft.expenses],
-  );
-
-  const incomes = useMemo(
-    () =>
-      Object.entries(draft.incomes)
-        .map(([id, value]) => ({ id, ...value }))
-        .sort(
-          (a, b) =>
-            (b.startDate ?? "").localeCompare(a.startDate ?? "") || (b.createdAt ?? 0) - (a.createdAt ?? 0),
-        ),
-    [draft.incomes],
-  );
+  const expenseEntries = useMemo(() => Object.entries(draft.expenses).map(([id, value]) => ({ id, ...value })), [draft.expenses]);
+  const incomeEntries = useMemo(() => Object.entries(draft.incomes).map(([id, value]) => ({ id, ...value })), [draft.incomes]);
+  const expenses = useMemo(() => sortCollection(expenseEntries, expenseSort, getExpenseSortValue), [expenseEntries, expenseSort]);
+  const incomes = useMemo(() => sortCollection(incomeEntries, incomeSort, getIncomeSortValue), [incomeEntries, incomeSort]);
 
   const reimbursementTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? Number(item.amount) || 0 : 0), 0);
   const incomeTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? 0 : Number(item.amount) || 0), 0);
@@ -705,12 +690,14 @@ export default function HomePage() {
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Fecha Movimiento</th>
-                          <th>Nombre</th>
-                          <th>Categoria</th>
-                          <th>Frecuencia</th>
-                          <th>Fecha Fin</th>
-                          <th>Monto</th>
+                          <th>{renderSortHeader("Fecha Movimiento", "movementDate", expenseSort, setExpenseSort)}</th>
+                          <th>{renderSortHeader("Nombre", "name", expenseSort, setExpenseSort)}</th>
+                          <th>{renderSortHeader("Categoria", "category", expenseSort, setExpenseSort)}</th>
+                          <th>{renderSortHeader("Frecuencia", "frequency", expenseSort, setExpenseSort)}</th>
+                          <th>{renderSortHeader("Fecha Fin", "endDate", expenseSort, setExpenseSort)}</th>
+                          <th>{renderSortHeader("Estado", "status", expenseSort, setExpenseSort)}</th>
+                          <th>{renderSortHeader("Moneda", "currency", expenseSort, setExpenseSort)}</th>
+                          <th>{renderSortHeader("Monto", "amount", expenseSort, setExpenseSort)}</th>
                           <th>Acciones</th>
                         </tr>
                       </thead>
@@ -720,11 +707,10 @@ export default function HomePage() {
                             <td>{formatDateLabel(expense.movementDate ?? expense.date)}</td>
                             <td>{expense.name ?? expense.merchantName ?? expense.detail ?? "Sin nombre"}</td>
                             <td>{expense.category || "Otros"}</td>
-                            <td>
-                              <strong>{expense.frequency || "Unico"}</strong>
-                              <span>{expense.isRecurringIndefinite ? "Recurrente sin fin" : "Segun configuracion"}</span>
-                            </td>
+                            <td>{expense.frequency || "Unico"}</td>
                             <td>{expense.isRecurringIndefinite ? "Sin fin" : expense.endDate ? formatDateLabel(expense.endDate) : "No aplica"}</td>
+                            <td>{expense.isRecurringIndefinite ? "Recurrente sin fin" : expense.endDate ? "Con termino" : "Unico"}</td>
+                            <td>{expense.currency || "USD"}</td>
                             <td className="amount-cell">{money(expense.amount, expense.currency)}</td>
                             <td className="actions-cell">
                               <div className="table-actions">
@@ -882,12 +868,15 @@ export default function HomePage() {
                     <table className="data-table">
                       <thead>
                         <tr>
-                          <th>Fecha Inicio</th>
-                          <th>Nombre</th>
-                          <th>Tipo</th>
-                          <th>Frecuencia</th>
-                          <th>Fecha Fin</th>
-                          <th>Monto</th>
+                          <th>{renderSortHeader("Fecha Inicio", "startDate", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Nombre", "name", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Tipo", "type", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Categoria Ajuste", "reimbursementCategory", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Frecuencia", "frequency", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Fecha Fin", "endDate", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Estado", "status", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Moneda", "currency", incomeSort, setIncomeSort)}</th>
+                          <th>{renderSortHeader("Monto", "amount", incomeSort, setIncomeSort)}</th>
                           <th>Acciones</th>
                         </tr>
                       </thead>
@@ -896,15 +885,12 @@ export default function HomePage() {
                           <tr key={income.id}>
                             <td>{income.startDate ? formatDateLabel(income.startDate) : formatTimestampLabel(income.createdAt)}</td>
                             <td>{income.name || "Sin nombre"}</td>
-                            <td>
-                              <strong>{income.isReimbursement ? "Reembolso" : "Ingreso real"}</strong>
-                              <span>{income.isReimbursement ? income.reimbursementCategory || "Sin categoria" : "Impacta ingresos"}</span>
-                            </td>
-                            <td>
-                              <strong>{income.frequency || "Mensual"}</strong>
-                              <span>{income.isRecurringIndefinite ? "Recurrente sin fin" : "Segun configuracion"}</span>
-                            </td>
+                            <td>{income.isReimbursement ? "Reembolso" : "Ingreso real"}</td>
+                            <td>{income.isReimbursement ? income.reimbursementCategory || "Sin categoria" : "No aplica"}</td>
+                            <td>{income.frequency || "Mensual"}</td>
                             <td>{income.isRecurringIndefinite ? "Sin fin" : income.endDate ? formatDateLabel(income.endDate) : "No aplica"}</td>
+                            <td>{income.isRecurringIndefinite ? "Recurrente sin fin" : income.endDate ? "Con termino" : "Unico"}</td>
+                            <td>{income.currency || "USD"}</td>
                             <td className="amount-cell">{money(income.amount, income.currency || "USD")}</td>
                             <td className="actions-cell">
                               <div className="table-actions">
@@ -946,6 +932,22 @@ export default function HomePage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function renderSortHeader(label, key, sortState, setSortState) {
+  const isActive = sortState.key === key;
+  const indicator = isActive ? (sortState.direction === "asc" ? "^" : "v") : "-";
+
+  return (
+    <button
+      className={isActive ? "sort-button active" : "sort-button"}
+      onClick={() => setSortState((current) => nextSortState(current, key))}
+      type="button"
+    >
+      <span>{label}</span>
+      <span className="sort-indicator">{indicator}</span>
+    </button>
   );
 }
 
@@ -1174,6 +1176,105 @@ function validateWorkspace(workspace) {
     if (error) return error;
   }
   return "";
+}
+
+function nextSortState(currentSort, key) {
+  if (currentSort.key === key) {
+    return { key, direction: currentSort.direction === "asc" ? "desc" : "asc" };
+  }
+
+  return { key, direction: defaultSortDirection(key) };
+}
+
+function defaultSortDirection(key) {
+  if (["movementDate", "startDate", "endDate", "amount"].includes(key)) {
+    return "desc";
+  }
+
+  return "asc";
+}
+
+function sortCollection(items, sortState, valueGetter) {
+  return [...items].sort((left, right) => {
+    const result = compareSortValues(valueGetter(left, sortState.key), valueGetter(right, sortState.key), sortState.direction);
+    if (result !== 0) return result;
+    return (Number(right.createdAt) || 0) - (Number(left.createdAt) || 0);
+  });
+}
+
+function compareSortValues(leftValue, rightValue, direction) {
+  if (leftValue == null && rightValue == null) return 0;
+  if (leftValue == null) return 1;
+  if (rightValue == null) return -1;
+
+  if (typeof leftValue === "number" && typeof rightValue === "number") {
+    return direction === "asc" ? leftValue - rightValue : rightValue - leftValue;
+  }
+
+  const normalizedLeft = String(leftValue);
+  const normalizedRight = String(rightValue);
+  const comparison = normalizedLeft.localeCompare(normalizedRight, "es", { sensitivity: "base", numeric: true });
+  return direction === "asc" ? comparison : comparison * -1;
+}
+
+function getExpenseSortValue(expense, key) {
+  switch (key) {
+    case "movementDate":
+      return dateToTimestamp(expense.movementDate ?? expense.date);
+    case "name":
+      return normalizeSortText(expense.name ?? expense.merchantName ?? expense.detail);
+    case "category":
+      return normalizeSortText(expense.category);
+    case "frequency":
+      return normalizeSortText(expense.frequency);
+    case "endDate":
+      return expense.isRecurringIndefinite ? null : dateToTimestamp(expense.endDate);
+    case "status":
+      return normalizeSortText(expense.isRecurringIndefinite ? "Recurrente sin fin" : expense.endDate ? "Con termino" : "Unico");
+    case "currency":
+      return normalizeSortText(expense.currency);
+    case "amount":
+      return Number(expense.amount) || 0;
+    default:
+      return null;
+  }
+}
+
+function getIncomeSortValue(income, key) {
+  switch (key) {
+    case "startDate":
+      return dateToTimestamp(income.startDate) ?? (Number(income.createdAt) || 0);
+    case "name":
+      return normalizeSortText(income.name);
+    case "type":
+      return normalizeSortText(income.isReimbursement ? "Reembolso" : "Ingreso real");
+    case "reimbursementCategory":
+      return normalizeSortText(income.isReimbursement ? income.reimbursementCategory : "No aplica");
+    case "frequency":
+      return normalizeSortText(income.frequency);
+    case "endDate":
+      return income.isRecurringIndefinite ? null : dateToTimestamp(income.endDate);
+    case "status":
+      return normalizeSortText(income.isRecurringIndefinite ? "Recurrente sin fin" : income.endDate ? "Con termino" : "Unico");
+    case "currency":
+      return normalizeSortText(income.currency);
+    case "amount":
+      return Number(income.amount) || 0;
+    default:
+      return null;
+  }
+}
+
+function normalizeSortText(value) {
+  const text = String(value ?? "").trim();
+  return text ? text.toLocaleLowerCase("es") : null;
+}
+
+function dateToTimestamp(value) {
+  if (!value) return null;
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.getTime();
 }
 
 function localDate(date = new Date()) {
