@@ -10,6 +10,7 @@ const tabs = [
   { id: "summary", label: "Resumen" },
   { id: "expenses", label: "Gastos" },
   { id: "incomes", label: "Ingresos" },
+  { id: "reconciliation", label: "Cuadre" },
   { id: "cashflow", label: "Tabla" },
   { id: "charts", label: "Graficos" },
 ];
@@ -58,14 +59,17 @@ export default function HomePage() {
   const [draft, setDraft] = useState(emptyWorkspace());
   const [expenseForm, setExpenseForm] = useState(defaultExpenseForm());
   const [incomeForm, setIncomeForm] = useState(defaultIncomeForm());
+  const [adjustmentForm, setAdjustmentForm] = useState(defaultAdjustmentForm());
   const [editingExpenseId, setEditingExpenseId] = useState("");
   const [editingIncomeId, setEditingIncomeId] = useState("");
+  const [editingAdjustmentId, setEditingAdjustmentId] = useState("");
   const [isInitializing, setIsInitializing] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [dataError, setDataError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [expenseSort, setExpenseSort] = useState({ key: "movementDate", direction: "desc" });
   const [incomeSort, setIncomeSort] = useState({ key: "startDate", direction: "desc" });
+  const [adjustmentSort, setAdjustmentSort] = useState({ key: "date", direction: "desc" });
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -173,8 +177,10 @@ export default function HomePage() {
       setLoadedVersionKey(selectedVersionKey);
       setExpenseForm(defaultExpenseForm());
       setIncomeForm(defaultIncomeForm());
+      setAdjustmentForm(defaultAdjustmentForm());
       setEditingExpenseId("");
       setEditingIncomeId("");
+      setEditingAdjustmentId("");
       setSaveState("idle");
       setDataError("");
       setSuccessMessage("");
@@ -186,11 +192,17 @@ export default function HomePage() {
 
   const expenseEntries = useMemo(() => Object.entries(draft.expenses).map(([id, value]) => ({ id, ...value })), [draft.expenses]);
   const incomeEntries = useMemo(() => Object.entries(draft.incomes).map(([id, value]) => ({ id, ...value })), [draft.incomes]);
+  const adjustmentEntries = useMemo(() => Object.entries(draft.adjustments ?? {}).map(([id, value]) => ({ id, ...value })), [draft.adjustments]);
   const expenses = useMemo(() => sortCollection(expenseEntries, expenseSort, getExpenseSortValue), [expenseEntries, expenseSort]);
   const incomes = useMemo(() => sortCollection(incomeEntries, incomeSort, getIncomeSortValue), [incomeEntries, incomeSort]);
+  const adjustments = useMemo(
+    () => sortCollection(adjustmentEntries, adjustmentSort, getAdjustmentSortValue),
+    [adjustmentEntries, adjustmentSort],
+  );
 
   const reimbursementTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? Number(item.amount) || 0 : 0), 0);
   const incomeTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? 0 : Number(item.amount) || 0), 0);
+  const adjustmentTotal = adjustments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
   const expenseCategoryTotals = useMemo(() => {
     const totals = Object.fromEntries(expenseCategories.map((category) => [category, 0]));
 
@@ -208,7 +220,7 @@ export default function HomePage() {
     return totals;
   }, [expenses, incomes]);
   const expenseTotal = Object.values(expenseCategoryTotals).reduce((sum, amount) => sum + (Number(amount) || 0), 0);
-  const balance = incomeTotal - expenseTotal;
+  const balance = incomeTotal - expenseTotal + adjustmentTotal;
   const hasUnsavedChanges = JSON.stringify(sanitizeWorkspace(draft)) !== JSON.stringify(sanitizeWorkspace(selectedVersion?.payload));
 
   const handleLogin = async (event) => {
@@ -307,6 +319,36 @@ export default function HomePage() {
     setSuccessMessage("");
   };
 
+  const saveAdjustmentToDraft = (event) => {
+    event.preventDefault();
+    const error = validateAdjustment(adjustmentForm);
+
+    if (error) {
+      setDataError(error);
+      return;
+    }
+
+    const adjustmentId = editingAdjustmentId || localId("adjustment");
+
+    setDraft((current) => ({
+      ...current,
+      adjustments: {
+        ...(current.adjustments ?? {}),
+        [adjustmentId]: {
+          date: adjustmentForm.date,
+          amount: Number(adjustmentForm.amount),
+          createdAt: current.adjustments?.[adjustmentId]?.createdAt ?? Date.now(),
+        },
+      },
+    }));
+
+    setAdjustmentForm(defaultAdjustmentForm());
+    setEditingAdjustmentId("");
+    setSaveState("idle");
+    setDataError("");
+    setSuccessMessage("");
+  };
+
   const editExpense = (expenseId) => {
     const expense = draft.expenses[expenseId];
     if (!expense) return;
@@ -344,6 +386,18 @@ export default function HomePage() {
     setActiveTab("incomes");
   };
 
+  const editAdjustment = (adjustmentId) => {
+    const adjustment = draft.adjustments?.[adjustmentId];
+    if (!adjustment) return;
+
+    setAdjustmentForm({
+      date: adjustment.date ?? localDate(),
+      amount: String(adjustment.amount ?? ""),
+    });
+    setEditingAdjustmentId(adjustmentId);
+    setActiveTab("reconciliation");
+  };
+
   const deleteExpense = (expenseId) => {
     setDraft((current) => {
       const nextExpenses = { ...current.expenses };
@@ -364,12 +418,24 @@ export default function HomePage() {
     setSuccessMessage("");
   };
 
+  const deleteAdjustment = (adjustmentId) => {
+    setDraft((current) => {
+      const nextAdjustments = { ...(current.adjustments ?? {}) };
+      delete nextAdjustments[adjustmentId];
+      return { ...current, adjustments: nextAdjustments };
+    });
+    setSaveState("idle");
+    setSuccessMessage("");
+  };
+
   const discardChanges = () => {
     setDraft(normalizeWorkspace(selectedVersion?.payload));
     setExpenseForm(defaultExpenseForm());
     setIncomeForm(defaultIncomeForm());
+    setAdjustmentForm(defaultAdjustmentForm());
     setEditingExpenseId("");
     setEditingIncomeId("");
+    setEditingAdjustmentId("");
     setSaveState("idle");
     setDataError("");
     setSuccessMessage("");
@@ -533,6 +599,10 @@ export default function HomePage() {
                   <strong>{money(expenseTotal, "USD")}</strong>
                 </article>
                 <article className="summary-card">
+                  <span>Cuadres</span>
+                  <strong>{money(adjustmentTotal, "USD")}</strong>
+                </article>
+                <article className="summary-card">
                   <span>Saldo actual</span>
                   <strong>{money(balance, "USD")}</strong>
                 </article>
@@ -555,11 +625,11 @@ export default function HomePage() {
                   </div>
                   <div>
                     <span className="summary-meta-label">Registros en borrador</span>
-                    <strong>{expenses.length + incomes.length} movimientos</strong>
+                    <strong>{expenses.length + incomes.length + adjustments.length} movimientos</strong>
                   </div>
                   <div>
                     <span className="summary-meta-label">Criterio aplicado</span>
-                    <strong>Los reembolsos descuentan gastos y no suman como ingreso real.</strong>
+                    <strong>Los reembolsos descuentan gastos y los cuadres ajustan saldo sin ser ingreso ni gasto.</strong>
                   </div>
                 </div>
               </section>
@@ -910,6 +980,104 @@ export default function HomePage() {
             </section>
           ) : null}
 
+          {activeTab === "reconciliation" ? (
+            <section className="workspace-stack reconciliation-stack">
+              <div className="reconciliation-tab-header">
+                <h2>Gestion de Cuadre</h2>
+              </div>
+
+              <form className="panel-card panel-frame entry-form reconciliation-entry-form" onSubmit={saveAdjustmentToDraft}>
+                <div className="reconciliation-form-title">
+                  <h3>{editingAdjustmentId ? "Modificar Ajuste de Cuadre" : "Registrar Ajuste de Cuadre"}</h3>
+                </div>
+
+                <div className="reconciliation-form-grid">
+                  <label className="reconciliation-field">
+                    Fecha Ajuste:
+                    <input name="date" onChange={(e) => setAdjustmentForm((c) => ({ ...c, date: e.target.value }))} type="date" value={adjustmentForm.date} />
+                  </label>
+                  <label className="reconciliation-field">
+                    Ajuste:
+                    <input inputMode="decimal" name="amount" onChange={(e) => setAdjustmentForm((c) => ({ ...c, amount: e.target.value }))} value={adjustmentForm.amount} />
+                  </label>
+                </div>
+
+                <p className="reconciliation-helper">
+                  Usa valores negativos o positivos para cuadrar la diferencia entre el flujo registrado y el saldo real de tu cuenta.
+                </p>
+
+                <div className="button-row reconciliation-button-row">
+                  <button className="primary-button" type="submit">
+                    {editingAdjustmentId ? "Actualizar cuadre" : "Agregar cuadre"}
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setAdjustmentForm(defaultAdjustmentForm());
+                      setEditingAdjustmentId("");
+                    }}
+                    type="button"
+                  >
+                    Limpiar
+                  </button>
+                </div>
+
+                <div className="button-row reconciliation-button-row">
+                  <button className="secondary-button" onClick={discardChanges} type="button">
+                    Descartar cambios
+                  </button>
+                  <button className="primary-button" disabled={saveState === "saving"} onClick={() => saveVersion("cuadres")} type="button">
+                    {saveState === "saving" ? "Guardando..." : "Guardar lista de cuadres"}
+                  </button>
+                </div>
+
+                {successMessage ? <p className="success-text">{successMessage}</p> : null}
+                {dataError ? <p className="error-text">{dataError}</p> : null}
+              </form>
+
+              <section className="panel-card panel-frame panel-table">
+                <div className="panel-heading">
+                  <h2>Lista de cuadres</h2>
+                  <p>Estos ajustes corrigen el saldo del flujo de caja sin sumarse como ingreso ni clasificarse como gasto.</p>
+                </div>
+
+                <div className="table-wrap">
+                  {adjustments.length ? (
+                    <table className="data-table reconciliation-table">
+                      <thead>
+                        <tr>
+                          <th>{renderSortHeader("Fecha Ajuste", "date", adjustmentSort, setAdjustmentSort)}</th>
+                          <th>{renderSortHeader("Categoria", "type", adjustmentSort, setAdjustmentSort)}</th>
+                          <th>{renderSortHeader("Ajuste", "amount", adjustmentSort, setAdjustmentSort)}</th>
+                          <th>{renderSortHeader("Impacto", "impact", adjustmentSort, setAdjustmentSort)}</th>
+                          <th>Acciones</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {adjustments.map((adjustment) => (
+                          <tr key={adjustment.id}>
+                            <td>{formatDateLabel(adjustment.date)}</td>
+                            <td>Cuadre</td>
+                            <td className="amount-cell">{money(adjustment.amount, "USD")}</td>
+                            <td>{Number(adjustment.amount) < 0 ? "Reduce saldo" : Number(adjustment.amount) > 0 ? "Aumenta saldo" : "Sin efecto"}</td>
+                            <td className="actions-cell">
+                              <div className="table-actions">
+                                <button className="secondary-button" onClick={() => editAdjustment(adjustment.id)} type="button">Modificar</button>
+                                <button className="danger-button" onClick={() => deleteAdjustment(adjustment.id)} type="button">Quitar</button>
+                              </div>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  ) : (
+                    <p className="muted-text">Todavia no hay ajustes de cuadre en la lista.</p>
+                  )}
+                </div>
+              </section>
+            </section>
+          ) : null}
+
           {activeTab === "cashflow" ? (
             <section className="panel-card blank-panel">
               <div className="panel-heading">
@@ -982,7 +1150,7 @@ function createVersionPayload(snapshotDate, payload, user, sourceVersion = null)
 }
 
 function emptyWorkspace() {
-  return { expenses: {}, incomes: {}, updatedAt: Date.now() };
+  return { expenses: {}, incomes: {}, adjustments: {}, updatedAt: Date.now() };
 }
 
 function defaultExpenseForm() {
@@ -1012,6 +1180,13 @@ function defaultIncomeForm() {
   };
 }
 
+function defaultAdjustmentForm() {
+  return {
+    date: localDate(),
+    amount: "",
+  };
+}
+
 function localId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1021,7 +1196,11 @@ function hasWorkspaceShape(value) {
 }
 
 function hasWorkspaceContent(workspace) {
-  return Boolean(Object.keys(workspace?.expenses ?? {}).length || Object.keys(workspace?.incomes ?? {}).length);
+  return Boolean(
+    Object.keys(workspace?.expenses ?? {}).length ||
+      Object.keys(workspace?.incomes ?? {}).length ||
+      Object.keys(workspace?.adjustments ?? {}).length,
+  );
 }
 
 function normalizeWorkspace(source) {
@@ -1035,6 +1214,7 @@ function normalizeWorkspace(source) {
   return sanitizeWorkspace({
     expenses: candidate.expenses ?? {},
     incomes: candidate.incomes ?? {},
+    adjustments: candidate.adjustments ?? {},
     updatedAt: candidate.updatedAt ?? candidate.savedAt ?? candidate.createdAt ?? Date.now(),
   });
 }
@@ -1070,6 +1250,16 @@ function sanitizeWorkspace(workspace) {
           isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
           isReimbursement: Boolean(value?.isReimbursement),
           reimbursementCategory: expenseCategories.includes(String(value?.reimbursementCategory ?? "")) ? String(value?.reimbursementCategory) : "",
+          createdAt: Number(value?.createdAt) || Date.now(),
+        },
+      ]),
+    ),
+    adjustments: Object.fromEntries(
+      Object.entries(workspace?.adjustments ?? {}).map(([id, value]) => [
+        id,
+        {
+          date: String(value?.date ?? localDate()),
+          amount: Number(value?.amount) || 0,
           createdAt: Number(value?.createdAt) || Date.now(),
         },
       ]),
@@ -1166,6 +1356,14 @@ function validateIncome(income) {
   return "";
 }
 
+function validateAdjustment(adjustment) {
+  if (!String(adjustment.date ?? "").trim()) return "El cuadre debe tener fecha.";
+  if (!Number.isFinite(Number(adjustment.amount)) || Number(adjustment.amount) === 0) {
+    return "El cuadre debe tener un valor distinto de cero.";
+  }
+  return "";
+}
+
 function validateWorkspace(workspace) {
   for (const expense of Object.values(workspace.expenses ?? {})) {
     const error = validateExpense(expense);
@@ -1173,6 +1371,10 @@ function validateWorkspace(workspace) {
   }
   for (const income of Object.values(workspace.incomes ?? {})) {
     const error = validateIncome(income);
+    if (error) return error;
+  }
+  for (const adjustment of Object.values(workspace.adjustments ?? {})) {
+    const error = validateAdjustment(adjustment);
     if (error) return error;
   }
   return "";
@@ -1187,7 +1389,7 @@ function nextSortState(currentSort, key) {
 }
 
 function defaultSortDirection(key) {
-  if (["movementDate", "startDate", "endDate", "amount"].includes(key)) {
+  if (["movementDate", "startDate", "date", "endDate", "amount"].includes(key)) {
     return "desc";
   }
 
@@ -1260,6 +1462,21 @@ function getIncomeSortValue(income, key) {
       return normalizeSortText(income.currency);
     case "amount":
       return Number(income.amount) || 0;
+    default:
+      return null;
+  }
+}
+
+function getAdjustmentSortValue(adjustment, key) {
+  switch (key) {
+    case "date":
+      return dateToTimestamp(adjustment.date);
+    case "type":
+      return normalizeSortText("Cuadre");
+    case "amount":
+      return Number(adjustment.amount) || 0;
+    case "impact":
+      return normalizeSortText(Number(adjustment.amount) < 0 ? "Reduce saldo" : Number(adjustment.amount) > 0 ? "Aumenta saldo" : "Sin efecto");
     default:
       return null;
   }

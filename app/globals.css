@@ -262,7 +262,7 @@ button {
 
 .summary-grid {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 0.9rem;
 }
 
@@ -353,12 +353,14 @@ button {
 }
 
 .expense-tab-header,
-.income-tab-header {
+.income-tab-header,
+.reconciliation-tab-header {
   padding: 0.15rem 0;
 }
 
 .expense-tab-header h2,
-.income-tab-header h2 {
+.income-tab-header h2,
+.reconciliation-tab-header h2 {
   margin: 0;
   color: #0a67f2;
   font-size: 1.05rem;
@@ -389,7 +391,8 @@ button {
 }
 
 .expense-entry-form,
-.income-entry-form {
+.income-entry-form,
+.reconciliation-entry-form {
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -397,13 +400,15 @@ button {
 }
 
 .expense-form-title,
-.income-form-title {
+.income-form-title,
+.reconciliation-form-title {
   padding: 0.95rem 1rem 0.7rem;
   border-bottom: 1px solid rgba(87, 112, 144, 0.22);
 }
 
 .expense-form-title h3,
-.income-form-title h3 {
+.income-form-title h3,
+.reconciliation-form-title h3 {
   margin: 0;
   font-size: 0.92rem;
   font-weight: 600;
@@ -411,14 +416,16 @@ button {
 }
 
 .expense-form-grid,
-.income-form-grid {
+.income-form-grid,
+.reconciliation-form-grid {
   display: grid;
   gap: 0;
 }
 
 .expense-field,
 .income-field,
-.income-reimbursement-field {
+.income-reimbursement-field,
+.reconciliation-field {
   gap: 0.45rem;
   padding: 0.7rem 1rem 0.85rem;
   border-bottom: 1px solid rgba(87, 112, 144, 0.18);
@@ -435,7 +442,8 @@ button {
 .expense-field select,
 .income-field input,
 .income-field select,
-.income-reimbursement-field select {
+.income-reimbursement-field select,
+.reconciliation-field input {
   min-height: 38px;
   border: 1px solid rgba(120, 140, 166, 0.42);
   border-radius: 12px;
@@ -512,26 +520,41 @@ button {
 .expense-entry-form .error-text,
 .income-entry-form .button-row,
 .income-entry-form .success-text,
-.income-entry-form .error-text {
+.income-entry-form .error-text,
+.reconciliation-entry-form .button-row,
+.reconciliation-entry-form .success-text,
+.reconciliation-entry-form .error-text,
+.reconciliation-helper {
   padding-left: 1rem;
   padding-right: 1rem;
 }
 
 .expense-entry-form .button-row:first-of-type,
-.income-entry-form .button-row:first-of-type {
+.income-entry-form .button-row:first-of-type,
+.reconciliation-entry-form .button-row:first-of-type {
   padding-top: 0.95rem;
 }
 
 .expense-entry-form .button-row:last-of-type,
-.income-entry-form .button-row:last-of-type {
+.income-entry-form .button-row:last-of-type,
+.reconciliation-entry-form .button-row:last-of-type {
   padding-bottom: 0.35rem;
 }
 
 .expense-entry-form .success-text,
 .expense-entry-form .error-text,
 .income-entry-form .success-text,
-.income-entry-form .error-text {
+.income-entry-form .error-text,
+.reconciliation-entry-form .success-text,
+.reconciliation-entry-form .error-text,
+.reconciliation-helper {
   padding-bottom: 1rem;
+}
+
+.reconciliation-helper {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
 }
 
 .table-wrap {
@@ -544,6 +567,10 @@ button {
   width: 100%;
   min-width: 1080px;
   border-collapse: collapse;
+}
+
+.reconciliation-table {
+  min-width: 760px;
 }
 
 .data-table th,
