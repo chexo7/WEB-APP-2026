@@ -1,6 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  addDays as addCalendarDays,
+  addMonths as addCalendarMonths,
+  eachDayOfInterval,
+  eachMonthOfInterval,
+  endOfMonth as getEndOfMonth,
+  format as formatDateValue,
+  getDaysInMonth,
+  isValid as isValidDate,
+  parseISO,
+  setDate as setDayOfMonth,
+  startOfMonth as getStartOfMonth,
+} from "date-fns";
+import { es } from "date-fns/locale";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -24,6 +38,7 @@ const expenseCurrencies = [
 ];
 const incomeFrequencies = ["Mensual", "Semanal", "Bi-semanal", "Unico"];
 const incomeCurrencies = expenseCurrencies;
+const spanishDateLocale = es;
 const fixedExpenseCategories = sortLabelsAlphabetically([
   "Ahorros",
   "Arriendo",
@@ -2682,26 +2697,16 @@ function budgetRangesOverlap(left, right) {
 function getMonthRangePartsFromMonths(startMonthKey, endMonthKey) {
   const startDate = parseDateKey(firstDayOfMonth(startMonthKey));
   const endDate = parseDateKey(firstDayOfMonth(endMonthKey));
-  const monthFormatter = new Intl.DateTimeFormat("es-CL", { month: "short" });
-  const fullFormatter = new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" });
-  const months = [];
-  let current = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-  const limit = new Date(endDate.getFullYear(), endDate.getMonth(), 1);
-  let guard = 0;
+  if (!isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate) return [];
 
-  while (current <= limit && guard < 240) {
-    const key = `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}`;
-    months.push({
-      key,
-      shortLabel: capitalizeLabel(monthFormatter.format(current).replace(".", "")),
-      yearLabel: String(current.getFullYear()),
-      fullLabel: capitalizeLabel(fullFormatter.format(current)),
-    });
-    current = new Date(current.getFullYear(), current.getMonth() + 1, 1);
-    guard += 1;
-  }
-
-  return months;
+  return eachMonthOfInterval({ start: getStartOfMonth(startDate), end: getStartOfMonth(endDate) })
+    .slice(0, 240)
+    .map((monthDate) => ({
+      key: formatDateValue(monthDate, "yyyy-MM"),
+      shortLabel: capitalizeLabel(formatDateValue(monthDate, "MMM", { locale: spanishDateLocale }).replace(".", "")),
+      yearLabel: formatDateValue(monthDate, "yyyy"),
+      fullLabel: capitalizeLabel(formatDateValue(monthDate, "MMMM yyyy", { locale: spanishDateLocale })),
+    }));
 }
 
 function defaultChartMonthRange(startDateKey, endDateKey) {
@@ -2737,16 +2742,15 @@ function firstDayOfMonth(monthKey) {
 }
 
 function lastDayOfMonth(monthKey) {
-  const [year, month] = String(monthKey).split("-").map(Number);
-  if (!year || !month) return firstDayOfMonth(monthKey);
-  return localDate(new Date(year, month, 0));
+  const monthDate = parseDateKey(firstDayOfMonth(monthKey));
+  if (!isValidDate(monthDate)) return firstDayOfMonth(monthKey);
+  return localDate(getEndOfMonth(monthDate));
 }
 
 function addMonthsToMonthKey(monthKey, monthsToAdd) {
-  const [year, month] = String(monthKey).split("-").map(Number);
-  if (!year || !month) return monthKey;
-  const next = new Date(year, month - 1 + Number(monthsToAdd || 0), 1);
-  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+  const monthDate = parseDateKey(firstDayOfMonth(monthKey));
+  if (!isValidDate(monthDate)) return monthKey;
+  return formatDateValue(addCalendarMonths(monthDate, Number(monthsToAdd || 0)), "yyyy-MM");
 }
 
 function minMonthKey(...values) {
@@ -3046,22 +3050,15 @@ function buildEmptyCashflowDetails(label, date) {
 function getDateRangeParts(startDateKey, endDateKey) {
   const startDate = parseDateKey(startDateKey);
   const endDate = parseDateKey(endDateKey);
-  const formatter = new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "2-digit" });
-  const dates = [];
-  let current = new Date(startDate);
-  let guard = 0;
+  if (!isValidDate(startDate) || !isValidDate(endDate) || startDate > endDate) return [];
 
-  while (current <= endDate && guard < 10000) {
-    dates.push({
-      key: localDate(current),
-      shortLabel: formatter.format(current),
-      yearLabel: String(current.getFullYear()),
-    });
-    current = addDays(current, 1);
-    guard += 1;
-  }
-
-  return dates;
+  return eachDayOfInterval({ start: startDate, end: endDate })
+    .slice(0, 10000)
+    .map((date) => ({
+      key: localDate(date),
+      shortLabel: formatDateValue(date, "dd/MM"),
+      yearLabel: formatDateValue(date, "yyyy"),
+    }));
 }
 
 function buildRecurringDates({ startDate, frequency, endDate, isRecurringIndefinite, displayEnd }) {
@@ -3071,7 +3068,7 @@ function buildRecurringDates({ startDate, frequency, endDate, isRecurringIndefin
   const limit = parseDateKey(displayEnd);
   const explicitEnd = endDate ? parseDateKey(endDate) : null;
 
-  if (Number.isNaN(start.getTime()) || Number.isNaN(limit.getTime()) || start > limit) {
+  if (!isValidDate(start) || !isValidDate(limit) || start > limit) {
     return [];
   }
 
@@ -3109,17 +3106,12 @@ function buildRecurringDates({ startDate, frequency, endDate, isRecurringIndefin
 }
 
 function addDays(date, days) {
-  const next = new Date(date);
-  next.setDate(next.getDate() + days);
-  return next;
+  return addCalendarDays(date, Number(days) || 0);
 }
 
 function addMonthsPreservingDay(date, desiredDay) {
-  const nextMonthIndex = date.getMonth() + 1;
-  const nextYear = date.getFullYear() + Math.floor(nextMonthIndex / 12);
-  const nextMonth = nextMonthIndex % 12;
-  const lastDay = new Date(nextYear, nextMonth + 1, 0).getDate();
-  return new Date(nextYear, nextMonth, Math.min(desiredDay, lastDay));
+  const nextMonthStart = getStartOfMonth(addCalendarMonths(date, 1));
+  return setDayOfMonth(nextMonthStart, Math.min(Number(desiredDay) || 1, getDaysInMonth(nextMonthStart)));
 }
 
 function nextRecurringDate(date, frequency) {
@@ -3141,7 +3133,7 @@ function nextRecurringDate(date, frequency) {
 }
 
 function parseDateKey(value) {
-  return new Date(`${value}T00:00:00`);
+  return parseISO(String(value ?? ""));
 }
 
 function minDateKey(...values) {
@@ -3218,16 +3210,14 @@ function capitalizeLabel(value) {
 
 function dateToTimestamp(value) {
   if (!value) return null;
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return null;
+  const date = parseDateKey(value);
+  if (!isValidDate(date)) return null;
   return date.getTime();
 }
 
 function localDate(date = new Date()) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
+  const normalizedDate = date instanceof Date ? date : new Date(date);
+  return formatDateValue(isValidDate(normalizedDate) ? normalizedDate : new Date(), "yyyy-MM-dd");
 }
 
 function money(value, currency) {
@@ -3249,27 +3239,28 @@ function formatCompactCurrency(value) {
 
 function formatMonthLabel(monthKey) {
   if (!isValidMonthKey(monthKey)) return monthKey;
-  return capitalizeLabel(
-    new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" }).format(parseDateKey(firstDayOfMonth(monthKey))),
-  );
+  const date = parseDateKey(firstDayOfMonth(monthKey));
+  if (!isValidDate(date)) return monthKey;
+  return capitalizeLabel(formatDateValue(date, "MMMM yyyy", { locale: spanishDateLocale }));
 }
 
 function formatMonthTick(monthKey) {
   if (!isValidMonthKey(monthKey)) return monthKey;
   const date = parseDateKey(firstDayOfMonth(monthKey));
-  const monthLabel = capitalizeLabel(new Intl.DateTimeFormat("es-CL", { month: "short" }).format(date).replace(".", ""));
-  return `${monthLabel} ${String(date.getFullYear()).slice(-2)}`;
+  if (!isValidDate(date)) return monthKey;
+  const monthLabel = capitalizeLabel(formatDateValue(date, "MMM", { locale: spanishDateLocale }).replace(".", ""));
+  return `${monthLabel} ${formatDateValue(date, "yy")}`;
 }
 
 function formatDailyChartTick(dateKey) {
   if (!dateKey) return "";
   const date = parseDateKey(dateKey);
-  if (Number.isNaN(date.getTime())) return dateKey;
+  if (!isValidDate(date)) return dateKey;
   const isMonthStart = date.getDate() === 1;
 
   return isMonthStart
-    ? capitalizeLabel(new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short" }).format(date).replace(".", ""))
-    : new Intl.DateTimeFormat("es-CL", { day: "2-digit" }).format(date);
+    ? capitalizeLabel(formatDateValue(date, "dd MMM", { locale: spanishDateLocale }).replace(".", ""))
+    : formatDateValue(date, "dd");
 }
 
 function resolveBalanceChartDomain(points) {
@@ -3292,7 +3283,9 @@ function resolveBalanceChartDomain(points) {
 }
 
 function labelVersion(version) {
-  return `${version.snapshotDate} | ${new Intl.DateTimeFormat("es-CL", { dateStyle: "medium", timeStyle: "short" }).format(new Date(version.savedAt))}`;
+  const timestamp = new Date(Number(version.savedAt));
+  if (!isValidDate(timestamp)) return String(version.snapshotDate ?? "Sin fecha");
+  return `${version.snapshotDate} | ${formatDateValue(timestamp, "Pp", { locale: spanishDateLocale })}`;
 }
 
 function toUsdAmount(expense) {
@@ -3301,15 +3294,15 @@ function toUsdAmount(expense) {
 
 function formatDateLabel(value) {
   if (!value) return "Sin fecha";
-  const date = new Date(`${value}T00:00:00`);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("es-CL", { dateStyle: "short" }).format(date);
+  const date = parseDateKey(value);
+  if (!isValidDate(date)) return value;
+  return formatDateValue(date, "P", { locale: spanishDateLocale });
 }
 
 function formatTimestampLabel(value) {
   if (!value) return "Sin fecha";
   const date = new Date(Number(value));
-  if (Number.isNaN(date.getTime())) return "Sin fecha";
-  return new Intl.DateTimeFormat("es-CL", { dateStyle: "short" }).format(date);
+  if (!isValidDate(date)) return "Sin fecha";
+  return formatDateValue(date, "P", { locale: spanishDateLocale });
 }
 
