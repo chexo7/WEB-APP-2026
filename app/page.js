@@ -11,6 +11,7 @@ const tabs = [
   { id: "expenses", label: "Gastos" },
   { id: "incomes", label: "Ingresos" },
   { id: "reconciliation", label: "Cuadre" },
+  { id: "settings", label: "Ajustes" },
   { id: "cashflow", label: "Tabla" },
   { id: "charts", label: "Graficos" },
 ];
@@ -83,6 +84,7 @@ export default function HomePage() {
   const [expenseForm, setExpenseForm] = useState(defaultExpenseForm());
   const [incomeForm, setIncomeForm] = useState(defaultIncomeForm());
   const [adjustmentForm, setAdjustmentForm] = useState(defaultAdjustmentForm());
+  const [settingsForm, setSettingsForm] = useState(defaultAnalysisSettings());
   const [editingExpenseId, setEditingExpenseId] = useState("");
   const [editingIncomeId, setEditingIncomeId] = useState("");
   const [editingAdjustmentId, setEditingAdjustmentId] = useState("");
@@ -199,11 +201,13 @@ export default function HomePage() {
     const selectedVersion = recentVersions.find((version) => version.key === selectedVersionKey);
 
     if (selectedVersion && loadedVersionKey !== selectedVersionKey) {
-      setDraft(normalizeWorkspace(selectedVersion.payload));
+      const nextWorkspace = normalizeWorkspace(selectedVersion.payload);
+      setDraft(nextWorkspace);
       setLoadedVersionKey(selectedVersionKey);
       setExpenseForm(defaultExpenseForm());
       setIncomeForm(defaultIncomeForm());
       setAdjustmentForm(defaultAdjustmentForm());
+      setSettingsForm(nextWorkspace.analysisSettings ?? defaultAnalysisSettings());
       setEditingExpenseId("");
       setEditingIncomeId("");
       setEditingAdjustmentId("");
@@ -249,6 +253,7 @@ export default function HomePage() {
   const balance = incomeTotal - expenseTotal + adjustmentTotal;
   const hasUnsavedChanges = JSON.stringify(sanitizeWorkspace(draft)) !== JSON.stringify(sanitizeWorkspace(selectedVersion?.payload));
   const todayKey = localDate();
+  const analysisSettings = draft.analysisSettings ?? defaultAnalysisSettings();
   const cashflowModel = useMemo(
     () =>
       buildCashflowModel({
@@ -256,8 +261,9 @@ export default function HomePage() {
         incomes,
         adjustments,
         currentDateKey: todayKey,
+        analysisSettings,
       }),
-    [adjustments, expenses, incomes, todayKey],
+    [adjustments, analysisSettings, expenses, incomes, todayKey],
   );
 
   useEffect(() => {
@@ -500,11 +506,57 @@ export default function HomePage() {
     });
   };
 
+  const saveSettingsToDraft = (event) => {
+    event.preventDefault();
+    const nextSettings = {
+      startDate: String(settingsForm.startDate ?? "").trim(),
+      endDate: String(settingsForm.endDate ?? "").trim(),
+    };
+    const error = validateAnalysisSettings(nextSettings);
+
+    if (error) {
+      setDataError(error);
+      return;
+    }
+
+    setDraft((current) => ({
+      ...current,
+      analysisSettings: nextSettings,
+    }));
+
+    setSaveState("idle");
+    setDataError("");
+    setSuccessMessage("");
+  };
+
+  const saveSettingsVersion = async () => {
+    const nextSettings = {
+      startDate: String(settingsForm.startDate ?? "").trim(),
+      endDate: String(settingsForm.endDate ?? "").trim(),
+    };
+    const error = validateAnalysisSettings(nextSettings);
+
+    if (error) {
+      setDataError(error);
+      return;
+    }
+
+    const nextDraft = {
+      ...draft,
+      analysisSettings: nextSettings,
+    };
+
+    setDraft(nextDraft);
+    await saveVersion("ajustes", nextDraft, "Los ajustes se guardaron como nueva entrada.");
+  };
+
   const discardChanges = () => {
-    setDraft(normalizeWorkspace(selectedVersion?.payload));
+    const nextWorkspace = normalizeWorkspace(selectedVersion?.payload);
+    setDraft(nextWorkspace);
     setExpenseForm(defaultExpenseForm());
     setIncomeForm(defaultIncomeForm());
     setAdjustmentForm(defaultAdjustmentForm());
+    setSettingsForm(nextWorkspace.analysisSettings ?? defaultAnalysisSettings());
     setEditingExpenseId("");
     setEditingIncomeId("");
     setEditingAdjustmentId("");
@@ -513,8 +565,8 @@ export default function HomePage() {
     setSuccessMessage("");
   };
 
-  const saveVersion = async (sectionLabel) => {
-    const sanitized = sanitizeWorkspace(draft);
+  const saveVersion = async (sectionLabel, workspaceOverride = draft, successText = "") => {
+    const sanitized = sanitizeWorkspace(workspaceOverride);
     const error = validateWorkspace(sanitized);
 
     if (error || !user?.uid) {
@@ -549,7 +601,7 @@ export default function HomePage() {
       setSelectedVersionKey(buildKey(snapshotDate, newVersionRef.key));
       setLoadedVersionKey("");
       setSaveState("saved");
-      setSuccessMessage(`La lista de ${sectionLabel} se guardo como nueva entrada.`);
+      setSuccessMessage(successText || `La lista de ${sectionLabel} se guardo como nueva entrada.`);
     } catch (firebaseError) {
       setSaveState("error");
       setDataError(firebaseError.message);
@@ -1150,16 +1202,80 @@ export default function HomePage() {
             </section>
           ) : null}
 
+          {activeTab === "settings" ? (
+            <section className="workspace-stack settings-stack">
+              <div className="settings-tab-header">
+                <h2>Ajustes de Analisis</h2>
+              </div>
+
+              <form className="panel-card panel-frame entry-form settings-entry-form" onSubmit={saveSettingsToDraft}>
+                <div className="settings-form-title">
+                  <h3>Rango del flujo de caja</h3>
+                </div>
+
+                <div className="settings-form-grid">
+                  <label className="settings-field">
+                    Fecha base:
+                    <input
+                      name="startDate"
+                      onChange={(e) => setSettingsForm((current) => ({ ...current, startDate: e.target.value }))}
+                      type="date"
+                      value={settingsForm.startDate}
+                    />
+                  </label>
+                  <label className="settings-field">
+                    Fecha de fin:
+                    <input
+                      name="endDate"
+                      onChange={(e) => setSettingsForm((current) => ({ ...current, endDate: e.target.value }))}
+                      type="date"
+                      value={settingsForm.endDate}
+                    />
+                  </label>
+                </div>
+
+                <p className="settings-helper">
+                  Este rango define las columnas que se analizaran en la pestana de flujo de caja. Por defecto parte en 2026-01-01 y termina en 2030-12-31.
+                </p>
+
+                <div className="button-row settings-button-row">
+                  <button className="primary-button" type="submit">
+                    Aplicar al borrador
+                  </button>
+                  <button
+                    className="secondary-button"
+                    onClick={() => setSettingsForm(draft.analysisSettings ?? defaultAnalysisSettings())}
+                    type="button"
+                  >
+                    Restaurar
+                  </button>
+                </div>
+
+                <div className="button-row settings-button-row">
+                  <button className="secondary-button" onClick={discardChanges} type="button">
+                    Descartar cambios
+                  </button>
+                  <button className="primary-button" disabled={saveState === "saving"} onClick={saveSettingsVersion} type="button">
+                    {saveState === "saving" ? "Guardando..." : "Guardar ajustes"}
+                  </button>
+                </div>
+
+                {successMessage ? <p className="success-text">{successMessage}</p> : null}
+                {dataError ? <p className="error-text">{dataError}</p> : null}
+              </form>
+            </section>
+          ) : null}
+
           {activeTab === "cashflow" ? (
             <section className="panel-card cashflow-panel">
               <div className="panel-heading">
                 <h2>Flujo de caja detallado</h2>
                 <p>
-                  Vista diaria del mes actual. El dia de hoy queda resaltado y el cuadro se centra automaticamente para dejarlo a la vista.
+                  Vista diaria segun el rango configurado en ajustes. El dia de hoy queda resaltado y el cuadro se centra automaticamente cuando entra en el rango.
                 </p>
               </div>
 
-              <div className="cashflow-month-label">{cashflowModel.monthLabel}</div>
+              <div className="cashflow-month-label">{cashflowModel.rangeLabel}</div>
 
               <div className="cashflow-table-wrap" onMouseLeave={() => setCashflowTooltip(null)} ref={cashflowScrollRef}>
                 <table className="cashflow-table">
@@ -1279,7 +1395,7 @@ function createVersionPayload(snapshotDate, payload, user, sourceVersion = null)
 }
 
 function emptyWorkspace() {
-  return { expenses: {}, incomes: {}, adjustments: {}, updatedAt: Date.now() };
+  return { expenses: {}, incomes: {}, adjustments: {}, analysisSettings: defaultAnalysisSettings(), updatedAt: Date.now() };
 }
 
 function defaultExpenseForm() {
@@ -1316,6 +1432,13 @@ function defaultAdjustmentForm() {
   };
 }
 
+function defaultAnalysisSettings() {
+  return {
+    startDate: "2026-01-01",
+    endDate: "2030-12-31",
+  };
+}
+
 function localId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -1344,6 +1467,7 @@ function normalizeWorkspace(source) {
     expenses: candidate.expenses ?? {},
     incomes: candidate.incomes ?? {},
     adjustments: candidate.adjustments ?? {},
+    analysisSettings: candidate.analysisSettings ?? defaultAnalysisSettings(),
     updatedAt: candidate.updatedAt ?? candidate.savedAt ?? candidate.createdAt ?? Date.now(),
   });
 }
@@ -1393,6 +1517,7 @@ function sanitizeWorkspace(workspace) {
         },
       ]),
     ),
+    analysisSettings: sanitizeAnalysisSettings(workspace?.analysisSettings),
     updatedAt: Number(workspace?.updatedAt) || Date.now(),
   };
 }
@@ -1493,6 +1618,13 @@ function validateAdjustment(adjustment) {
   return "";
 }
 
+function validateAnalysisSettings(settings) {
+  if (!String(settings?.startDate ?? "").trim()) return "La fecha base es obligatoria.";
+  if (!String(settings?.endDate ?? "").trim()) return "La fecha de fin es obligatoria.";
+  if (String(settings.startDate) > String(settings.endDate)) return "La fecha base no puede ser posterior a la fecha de fin.";
+  return "";
+}
+
 function validateWorkspace(workspace) {
   for (const expense of Object.values(workspace.expenses ?? {})) {
     const error = validateExpense(expense);
@@ -1506,6 +1638,8 @@ function validateWorkspace(workspace) {
     const error = validateAdjustment(adjustment);
     if (error) return error;
   }
+  const settingsError = validateAnalysisSettings(workspace.analysisSettings ?? defaultAnalysisSettings());
+  if (settingsError) return settingsError;
   return "";
 }
 
@@ -1611,10 +1745,11 @@ function getAdjustmentSortValue(adjustment, key) {
   }
 }
 
-function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey }) {
-  const dates = getMonthDateParts(currentDateKey);
-  const displayStart = dates[0]?.key ?? currentDateKey;
-  const displayEnd = dates[dates.length - 1]?.key ?? currentDateKey;
+function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, analysisSettings }) {
+  const settings = sanitizeAnalysisSettings(analysisSettings);
+  const dates = getDateRangeParts(settings.startDate, settings.endDate);
+  const displayStart = dates[0]?.key ?? settings.startDate;
+  const displayEnd = dates[dates.length - 1]?.key ?? settings.endDate;
 
   const incomeByDate = {};
   const incomeDetailsByDate = {};
@@ -1815,7 +1950,7 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey }) 
     dates,
     rows,
     todayKey: currentDateKey,
-    monthLabel: new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" }).format(parseDateKey(currentDateKey)),
+    rangeLabel: `${formatDateLabel(settings.startDate)} - ${formatDateLabel(settings.endDate)}`,
   };
 }
 
@@ -1850,21 +1985,25 @@ function buildEmptyCashflowDetails(label, date) {
   return { lines: ["Sin movimientos registrados."], total: 0 };
 }
 
-function getMonthDateParts(dateKey) {
-  const baseDate = parseDateKey(dateKey);
-  const year = baseDate.getFullYear();
-  const month = baseDate.getMonth();
-  const totalDays = new Date(year, month + 1, 0).getDate();
+function getDateRangeParts(startDateKey, endDateKey) {
+  const startDate = parseDateKey(startDateKey);
+  const endDate = parseDateKey(endDateKey);
   const formatter = new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "2-digit" });
+  const dates = [];
+  let current = new Date(startDate);
+  let guard = 0;
 
-  return Array.from({ length: totalDays }, (_, index) => {
-    const current = new Date(year, month, index + 1);
-    return {
+  while (current <= endDate && guard < 10000) {
+    dates.push({
       key: localDate(current),
       shortLabel: formatter.format(current),
-      yearLabel: String(year),
-    };
-  });
+      yearLabel: String(current.getFullYear()),
+    });
+    current = addDays(current, 1);
+    guard += 1;
+  }
+
+  return dates;
 }
 
 function buildRecurringDates({ startDate, frequency, endDate, isRecurringIndefinite, displayEnd }) {
@@ -1945,12 +2084,29 @@ function appendDateLine(target, date, line) {
   target[date].push(line);
 }
 
-function formatCashflowLine({ amount, currency, label, date }) {
-  return `${money(amount, currency || "USD")} - ${label} (${date})`;
+function formatCashflowLine({ amount, label, date }) {
+  return `${formatCashflowAmount(amount)} - ${label} (${date})`;
 }
 
 function formatCashflowAmount(value) {
-  return money(value, "USD");
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2,
+  }).format(Number(value) || 0);
+}
+
+function sanitizeAnalysisSettings(settings) {
+  const candidate = settings ?? {};
+  const startDate = String(candidate.startDate ?? "2026-01-01");
+  const endDate = String(candidate.endDate ?? "2030-12-31");
+
+  if (!startDate || !endDate || startDate > endDate) {
+    return defaultAnalysisSettings();
+  }
+
+  return { startDate, endDate };
 }
 
 function normalizeSortText(value) {

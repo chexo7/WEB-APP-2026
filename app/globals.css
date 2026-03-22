@@ -352,15 +352,21 @@ button {
   gap: 0.9rem;
 }
 
+.settings-stack {
+  gap: 0.9rem;
+}
+
 .expense-tab-header,
 .income-tab-header,
-.reconciliation-tab-header {
+.reconciliation-tab-header,
+.settings-tab-header {
   padding: 0.15rem 0;
 }
 
 .expense-tab-header h2,
 .income-tab-header h2,
-.reconciliation-tab-header h2 {
+.reconciliation-tab-header h2,
+.settings-tab-header h2 {
   margin: 0;
   color: #0a67f2;
   font-size: 1.05rem;
@@ -392,7 +398,8 @@ button {
 
 .expense-entry-form,
 .income-entry-form,
-.reconciliation-entry-form {
+.reconciliation-entry-form,
+.settings-entry-form {
   gap: 0;
   padding: 0;
   overflow: hidden;
@@ -401,14 +408,16 @@ button {
 
 .expense-form-title,
 .income-form-title,
-.reconciliation-form-title {
+.reconciliation-form-title,
+.settings-form-title {
   padding: 0.95rem 1rem 0.7rem;
   border-bottom: 1px solid rgba(87, 112, 144, 0.22);
 }
 
 .expense-form-title h3,
 .income-form-title h3,
-.reconciliation-form-title h3 {
+.reconciliation-form-title h3,
+.settings-form-title h3 {
   margin: 0;
   font-size: 0.92rem;
   font-weight: 600;
@@ -417,7 +426,8 @@ button {
 
 .expense-form-grid,
 .income-form-grid,
-.reconciliation-form-grid {
+.reconciliation-form-grid,
+.settings-form-grid {
   display: grid;
   gap: 0;
 }
@@ -425,7 +435,8 @@ button {
 .expense-field,
 .income-field,
 .income-reimbursement-field,
-.reconciliation-field {
+.reconciliation-field,
+.settings-field {
   gap: 0.45rem;
   padding: 0.7rem 1rem 0.85rem;
   border-bottom: 1px solid rgba(87, 112, 144, 0.18);
@@ -443,7 +454,8 @@ button {
 .income-field input,
 .income-field select,
 .income-reimbursement-field select,
-.reconciliation-field input {
+.reconciliation-field input,
+.settings-field input {
   min-height: 38px;
   border: 1px solid rgba(120, 140, 166, 0.42);
   border-radius: 12px;
@@ -524,20 +536,26 @@ button {
 .reconciliation-entry-form .button-row,
 .reconciliation-entry-form .success-text,
 .reconciliation-entry-form .error-text,
-.reconciliation-helper {
+.reconciliation-helper,
+.settings-entry-form .button-row,
+.settings-entry-form .success-text,
+.settings-entry-form .error-text,
+.settings-helper {
   padding-left: 1rem;
   padding-right: 1rem;
 }
 
 .expense-entry-form .button-row:first-of-type,
 .income-entry-form .button-row:first-of-type,
-.reconciliation-entry-form .button-row:first-of-type {
+.reconciliation-entry-form .button-row:first-of-type,
+.settings-entry-form .button-row:first-of-type {
   padding-top: 0.95rem;
 }
 
 .expense-entry-form .button-row:last-of-type,
 .income-entry-form .button-row:last-of-type,
-.reconciliation-entry-form .button-row:last-of-type {
+.reconciliation-entry-form .button-row:last-of-type,
+.settings-entry-form .button-row:last-of-type {
   padding-bottom: 0.35rem;
 }
 
@@ -547,11 +565,15 @@ button {
 .income-entry-form .error-text,
 .reconciliation-entry-form .success-text,
 .reconciliation-entry-form .error-text,
-.reconciliation-helper {
+.reconciliation-helper,
+.settings-entry-form .success-text,
+.settings-entry-form .error-text,
+.settings-helper {
   padding-bottom: 1rem;
 }
 
-.reconciliation-helper {
+.reconciliation-helper,
+.settings-helper {
   margin: 0;
   color: var(--muted);
   font-size: 0.8rem;
@@ -571,6 +593,7 @@ button {
 }
 
 .cashflow-table-wrap {
+  position: relative;
   overflow: auto;
   max-width: 100%;
   border: 1px solid var(--line-strong);
@@ -580,16 +603,26 @@ button {
 .cashflow-table {
   width: max-content;
   min-width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
 }
 
 .cashflow-table th,
 .cashflow-table td {
   min-width: 78px;
   padding: 0.72rem 0.62rem;
-  border: 1px solid rgba(126, 147, 173, 0.28);
+  border-right: 1px solid rgba(126, 147, 173, 0.28);
+  border-bottom: 1px solid rgba(126, 147, 173, 0.28);
   text-align: center;
   font-size: 0.79rem;
+}
+
+.cashflow-table tr > *:first-child {
+  border-left: 1px solid rgba(126, 147, 173, 0.28);
+}
+
+.cashflow-table thead tr:first-child > * {
+  border-top: 1px solid rgba(126, 147, 173, 0.28);
 }
 
 .cashflow-table td {
@@ -613,22 +646,30 @@ button {
 .cashflow-sticky {
   position: sticky;
   left: 0;
-  z-index: 2;
+  z-index: 5;
   background: #ffffff;
+  background-clip: padding-box;
+  box-shadow: 1px 0 0 rgba(126, 147, 173, 0.28);
 }
 
 .cashflow-concept-head {
+  width: 190px;
   min-width: 190px;
+  max-width: 190px;
   text-align: left;
-  z-index: 4;
+  white-space: nowrap;
+  z-index: 7;
 }
 
 .cashflow-row-label {
+  width: 190px;
   min-width: 190px;
+  max-width: 190px;
   text-align: left;
   color: #13253a;
   font-size: 0.8rem;
   font-weight: 700;
+  white-space: nowrap;
 }
 
 .cashflow-balance-row .cashflow-row-label,
