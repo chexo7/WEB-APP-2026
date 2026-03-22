@@ -15,31 +15,6 @@ const tabs = [
   { id: "cashflow", label: "Tabla" },
   { id: "charts", label: "Graficos" },
 ];
-const expenseCategories = [
-  "Ahorros",
-  "Arriendo",
-  "Auto",
-  "Cosas de Casa",
-  "Creditos",
-  "Cuentas",
-  "Delivery",
-  "Deporte",
-  "Gastos Comunes",
-  "Inversiones",
-  "Minimarket",
-  "Otros",
-  "Panoramas",
-  "Regalos para alguien",
-  "Ropa",
-  "Salidas a comer",
-  "Salud",
-  "Supermercado",
-  "Suscripciones",
-  "Transporte Publico",
-  "Uber",
-  "Vega",
-  "Viajes",
-];
 const expenseFrequencies = ["Unico", "Mensual", "Semanal", "Bi-semanal"];
 const expenseCurrencies = [
   { value: "USD", label: "USD - Dolar Estadounidense" },
@@ -47,8 +22,16 @@ const expenseCurrencies = [
 ];
 const incomeFrequencies = ["Mensual", "Semanal", "Bi-semanal", "Unico"];
 const incomeCurrencies = expenseCurrencies;
-const fixedExpenseCategories = ["Ahorros", "Arriendo", "Creditos", "Cuentas", "Gastos Comunes", "Inversiones", "Suscripciones"];
-const variableExpenseCategories = [
+const fixedExpenseCategories = sortLabelsAlphabetically([
+  "Ahorros",
+  "Arriendo",
+  "Creditos",
+  "Cuentas",
+  "Gastos Comunes",
+  "Inversiones",
+  "Suscripciones",
+]);
+const variableExpenseCategories = sortLabelsAlphabetically([
   "Auto",
   "Cosas de Casa",
   "Delivery",
@@ -65,7 +48,8 @@ const variableExpenseCategories = [
   "Uber",
   "Vega",
   "Viajes",
-];
+]);
+const expenseCategories = sortLabelsAlphabetically([...new Set([...fixedExpenseCategories, ...variableExpenseCategories])]);
 const expenseCategoryGroups = Object.fromEntries([
   ...fixedExpenseCategories.map((category) => [category, "fixed"]),
   ...variableExpenseCategories.map((category) => [category, "variable"]),
@@ -1453,6 +1437,10 @@ function defaultAnalysisSettings() {
     startDate: "2026-01-01",
     endDate: "2030-12-31",
   };
+}
+
+function sortLabelsAlphabetically(items) {
+  return [...items].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
 
 function localId(prefix) {
