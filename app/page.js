@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
@@ -46,6 +46,29 @@ const expenseCurrencies = [
 ];
 const incomeFrequencies = ["Mensual", "Semanal", "Bi-semanal", "Unico"];
 const incomeCurrencies = expenseCurrencies;
+const fixedExpenseCategories = ["Ahorros", "Arriendo", "Creditos", "Cuentas", "Gastos Comunes", "Inversiones", "Suscripciones"];
+const variableExpenseCategories = [
+  "Auto",
+  "Cosas de Casa",
+  "Delivery",
+  "Deporte",
+  "Minimarket",
+  "Otros",
+  "Panoramas",
+  "Regalos para alguien",
+  "Ropa",
+  "Salidas a comer",
+  "Salud",
+  "Supermercado",
+  "Transporte Publico",
+  "Uber",
+  "Vega",
+  "Viajes",
+];
+const expenseCategoryGroups = Object.fromEntries([
+  ...fixedExpenseCategories.map((category) => [category, "fixed"]),
+  ...variableExpenseCategories.map((category) => [category, "variable"]),
+]);
 
 export default function HomePage() {
   const [credentials, setCredentials] = useState(defaultCredentials);
@@ -70,6 +93,9 @@ export default function HomePage() {
   const [expenseSort, setExpenseSort] = useState({ key: "movementDate", direction: "desc" });
   const [incomeSort, setIncomeSort] = useState({ key: "startDate", direction: "desc" });
   const [adjustmentSort, setAdjustmentSort] = useState({ key: "date", direction: "desc" });
+  const [cashflowTooltip, setCashflowTooltip] = useState(null);
+  const cashflowScrollRef = useRef(null);
+  const currentDayColumnRef = useRef(null);
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -222,6 +248,36 @@ export default function HomePage() {
   const expenseTotal = Object.values(expenseCategoryTotals).reduce((sum, amount) => sum + (Number(amount) || 0), 0);
   const balance = incomeTotal - expenseTotal + adjustmentTotal;
   const hasUnsavedChanges = JSON.stringify(sanitizeWorkspace(draft)) !== JSON.stringify(sanitizeWorkspace(selectedVersion?.payload));
+  const todayKey = localDate();
+  const cashflowModel = useMemo(
+    () =>
+      buildCashflowModel({
+        expenses,
+        incomes,
+        adjustments,
+        currentDateKey: todayKey,
+      }),
+    [adjustments, expenses, incomes, todayKey],
+  );
+
+  useEffect(() => {
+    if (activeTab !== "cashflow") {
+      setCashflowTooltip(null);
+      return;
+    }
+
+    const container = cashflowScrollRef.current;
+    const target = currentDayColumnRef.current;
+
+    if (!container || !target) return;
+
+    const frame = requestAnimationFrame(() => {
+      const nextLeft = Math.max(0, target.offsetLeft - container.clientWidth / 2 + target.clientWidth / 2);
+      container.scrollTo({ left: nextLeft, behavior: "smooth" });
+    });
+
+    return () => cancelAnimationFrame(frame);
+  }, [activeTab, cashflowModel.todayKey, cashflowModel.dates.length]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -426,6 +482,22 @@ export default function HomePage() {
     });
     setSaveState("idle");
     setSuccessMessage("");
+  };
+
+  const showCashflowTooltip = (event, row, date) => {
+    const details = row.details?.[date] ?? buildEmptyCashflowDetails(row.label, date);
+    const rect = event.currentTarget.getBoundingClientRect();
+    const left = Math.min(rect.left, Math.max(16, window.innerWidth - 320));
+    const top = Math.min(rect.bottom + 10, window.innerHeight - 180);
+
+    setCashflowTooltip({
+      left,
+      top,
+      title: row.label,
+      date,
+      lines: details.lines,
+      total: details.total,
+    });
   };
 
   const discardChanges = () => {
@@ -1079,12 +1151,69 @@ export default function HomePage() {
           ) : null}
 
           {activeTab === "cashflow" ? (
-            <section className="panel-card blank-panel">
+            <section className="panel-card cashflow-panel">
               <div className="panel-heading">
-                <h2>Flujo de caja en tabla</h2>
-                <p>Esta pestana queda reservada para la tabla completa del flujo de caja.</p>
+                <h2>Flujo de caja detallado</h2>
+                <p>
+                  Vista diaria del mes actual. El dia de hoy queda resaltado y el cuadro se centra automaticamente para dejarlo a la vista.
+                </p>
               </div>
-              <p className="placeholder-copy">Queda vacia por ahora para que podamos construirla despues sobre la misma base de datos.</p>
+
+              <div className="cashflow-month-label">{cashflowModel.monthLabel}</div>
+
+              <div className="cashflow-table-wrap" onMouseLeave={() => setCashflowTooltip(null)} ref={cashflowScrollRef}>
+                <table className="cashflow-table">
+                  <thead>
+                    <tr>
+                      <th className="cashflow-sticky cashflow-concept-head">Categoria / Concepto</th>
+                      {cashflowModel.dates.map((date) => (
+                        <th
+                          className={date.key === cashflowModel.todayKey ? "cashflow-day-head today-column" : "cashflow-day-head"}
+                          key={date.key}
+                          ref={date.key === cashflowModel.todayKey ? currentDayColumnRef : null}
+                        >
+                          <span>{date.shortLabel}</span>
+                          <span>{date.yearLabel}</span>
+                        </th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cashflowModel.rows.map((row) => (
+                      <tr className={row.className} key={row.key}>
+                        <th className="cashflow-sticky cashflow-row-label">{row.label}</th>
+                        {cashflowModel.dates.map((date) => (
+                          <td
+                            className={date.key === cashflowModel.todayKey ? "today-column" : ""}
+                            key={`${row.key}-${date.key}`}
+                            onMouseEnter={(event) => showCashflowTooltip(event, row, date.key)}
+                            onMouseLeave={() => setCashflowTooltip(null)}
+                          >
+                            {formatCashflowAmount(row.values?.[date.key] ?? 0)}
+                          </td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {cashflowTooltip ? (
+                <div className="cashflow-tooltip" style={{ left: `${cashflowTooltip.left}px`, top: `${cashflowTooltip.top}px` }}>
+                  <strong>{cashflowTooltip.title}</strong>
+                  <span>{formatDateLabel(cashflowTooltip.date)}</span>
+                  {cashflowTooltip.lines.length ? (
+                    <div className="cashflow-tooltip-lines">
+                      {cashflowTooltip.lines.map((line, index) => (
+                        <p key={`${cashflowTooltip.title}-${cashflowTooltip.date}-${index}`}>{line}</p>
+                      ))}
+                    </div>
+                  ) : (
+                    <p>Sin movimientos registrados.</p>
+                  )}
+                  <p className="cashflow-tooltip-total">Total: {formatCashflowAmount(cashflowTooltip.total)}</p>
+                </div>
+              ) : null}
             </section>
           ) : null}
 
@@ -1480,6 +1609,348 @@ function getAdjustmentSortValue(adjustment, key) {
     default:
       return null;
   }
+}
+
+function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey }) {
+  const dates = getMonthDateParts(currentDateKey);
+  const displayStart = dates[0]?.key ?? currentDateKey;
+  const displayEnd = dates[dates.length - 1]?.key ?? currentDateKey;
+
+  const incomeByDate = {};
+  const incomeDetailsByDate = {};
+  const adjustmentByDate = {};
+  const adjustmentDetailsByDate = {};
+  const fixedTotalByDate = {};
+  const fixedDetailsByDate = {};
+  const variableTotalByDate = {};
+  const variableDetailsByDate = {};
+  const categoryValues = Object.fromEntries(expenseCategories.map((category) => [category, {}]));
+  const categoryDetails = Object.fromEntries(expenseCategories.map((category) => [category, {}]));
+  const dailyImpactByDate = {};
+
+  const registerCategoryImpact = (date, category, amount, line) => {
+    increaseDateValue(dailyImpactByDate, date, amount);
+    const group = getExpenseCategoryGroup(category);
+
+    if (date < displayStart || date > displayEnd) {
+      return;
+    }
+
+    increaseDateValue(categoryValues[category], date, amount);
+    appendDateLine(categoryDetails[category], date, line);
+
+    if (group === "fixed") {
+      increaseDateValue(fixedTotalByDate, date, amount);
+      appendDateLine(fixedDetailsByDate, date, line);
+    } else {
+      increaseDateValue(variableTotalByDate, date, amount);
+      appendDateLine(variableDetailsByDate, date, line);
+    }
+  };
+
+  for (const expense of expenses) {
+    const occurrenceDates = buildRecurringDates({
+      startDate: expense.movementDate ?? expense.date,
+      frequency: expense.frequency,
+      endDate: expense.endDate,
+      isRecurringIndefinite: expense.isRecurringIndefinite,
+      displayEnd,
+    });
+
+    for (const date of occurrenceDates) {
+      const amount = -(Number(expense.amount) || 0);
+      const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
+      const line = formatCashflowLine({
+        amount,
+        currency: expense.currency,
+        label: expense.name || "Gasto",
+        date,
+      });
+      registerCategoryImpact(date, category, amount, line);
+    }
+  }
+
+  for (const income of incomes) {
+    const occurrenceDates = buildRecurringDates({
+      startDate: income.startDate,
+      frequency: income.frequency,
+      endDate: income.endDate,
+      isRecurringIndefinite: income.isRecurringIndefinite,
+      displayEnd,
+    });
+
+    for (const date of occurrenceDates) {
+      const amount = Number(income.amount) || 0;
+
+      if (income.isReimbursement) {
+        const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
+        const line = formatCashflowLine({
+          amount,
+          currency: income.currency,
+          label: `Reembolso ${income.name || "sin nombre"}`,
+          date,
+        });
+        registerCategoryImpact(date, category, amount, line);
+        continue;
+      }
+
+      increaseDateValue(dailyImpactByDate, date, amount);
+      if (date < displayStart || date > displayEnd) continue;
+
+      increaseDateValue(incomeByDate, date, amount);
+      appendDateLine(
+        incomeDetailsByDate,
+        date,
+        formatCashflowLine({
+          amount,
+          currency: income.currency,
+          label: income.name || "Ingreso",
+          date,
+        }),
+      );
+    }
+  }
+
+  for (const adjustment of adjustments) {
+    const date = adjustment.date;
+    const amount = Number(adjustment.amount) || 0;
+    increaseDateValue(dailyImpactByDate, date, amount);
+
+    if (date < displayStart || date > displayEnd) continue;
+
+    increaseDateValue(adjustmentByDate, date, amount);
+    appendDateLine(
+      adjustmentDetailsByDate,
+      date,
+      formatCashflowLine({
+        amount,
+        currency: "USD",
+        label: "Cuadre manual",
+        date,
+      }),
+    );
+  }
+
+  const openingBalanceByDate = {};
+  const openingDetailsByDate = {};
+  const netFlowByDate = {};
+  const netFlowDetailsByDate = {};
+  const closingBalanceByDate = {};
+  const closingDetailsByDate = {};
+
+  let runningBalance = Object.entries(dailyImpactByDate)
+    .filter(([date]) => date < displayStart)
+    .reduce((sum, [, amount]) => sum + (Number(amount) || 0), 0);
+
+  for (const date of dates.map((item) => item.key)) {
+    const opening = runningBalance;
+    const income = incomeByDate[date] ?? 0;
+    const fixedTotal = fixedTotalByDate[date] ?? 0;
+    const variableTotal = variableTotalByDate[date] ?? 0;
+    const netFlow = income + fixedTotal + variableTotal;
+    const adjustment = adjustmentByDate[date] ?? 0;
+    const closing = opening + netFlow + adjustment;
+
+    openingBalanceByDate[date] = opening;
+    netFlowByDate[date] = netFlow;
+    closingBalanceByDate[date] = closing;
+
+    openingDetailsByDate[date] = {
+      lines: opening ? [`Saldo acumulado hasta ayer: ${formatCashflowAmount(opening)}`] : ["Sin arrastre previo."],
+      total: opening,
+    };
+
+    const flowLines = [
+      ...(incomeDetailsByDate[date] ?? []),
+      ...(fixedDetailsByDate[date] ?? []),
+      ...(variableDetailsByDate[date] ?? []),
+    ];
+
+    netFlowDetailsByDate[date] = {
+      lines: flowLines.length ? flowLines : ["Sin movimientos de flujo."],
+      total: netFlow,
+    };
+
+    closingDetailsByDate[date] = {
+      lines: [
+        `Saldo inicial: ${formatCashflowAmount(opening)}`,
+        `Flujo neto: ${formatCashflowAmount(netFlow)}`,
+        `Cuadre: ${formatCashflowAmount(adjustment)}`,
+      ],
+      total: closing,
+    };
+
+    runningBalance = closing;
+  }
+
+  const rows = [
+    makeCashflowRow("openingBalance", "Saldo Inicial", openingBalanceByDate, openingDetailsByDate, "cashflow-balance-row"),
+    makeCashflowRow("incomeNet", "Ingreso Total Neto", incomeByDate, buildRowDetails(incomeDetailsByDate, incomeByDate, "Sin ingresos reales."), "cashflow-summary-row"),
+    ...fixedExpenseCategories.map((category) =>
+      makeCashflowRow(category, category, categoryValues[category], buildRowDetails(categoryDetails[category], categoryValues[category], "Sin movimientos.")),
+    ),
+    makeCashflowRow("fixedTotal", "Total Gastos Fijos", fixedTotalByDate, buildRowDetails(fixedDetailsByDate, fixedTotalByDate, "Sin gastos fijos."), "cashflow-total-row"),
+    ...variableExpenseCategories.map((category) =>
+      makeCashflowRow(category, category, categoryValues[category], buildRowDetails(categoryDetails[category], categoryValues[category], "Sin movimientos.")),
+    ),
+    makeCashflowRow(
+      "variableTotal",
+      "Total Gastos Variables",
+      variableTotalByDate,
+      buildRowDetails(variableDetailsByDate, variableTotalByDate, "Sin gastos variables."),
+      "cashflow-total-row",
+    ),
+    makeCashflowRow("netFlow", "Flujo Neto del Periodo", netFlowByDate, netFlowDetailsByDate, "cashflow-total-row"),
+    makeCashflowRow(
+      "reconciliation",
+      "Cuadre",
+      adjustmentByDate,
+      buildRowDetails(adjustmentDetailsByDate, adjustmentByDate, "Sin ajustes de cuadre."),
+      "cashflow-total-row",
+    ),
+    makeCashflowRow("closingBalance", "Saldo Final Estimado", closingBalanceByDate, closingDetailsByDate, "cashflow-final-row"),
+  ];
+
+  return {
+    dates,
+    rows,
+    todayKey: currentDateKey,
+    monthLabel: new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" }).format(parseDateKey(currentDateKey)),
+  };
+}
+
+function makeCashflowRow(key, label, values, details, className = "") {
+  return {
+    key,
+    label,
+    values,
+    details,
+    className,
+  };
+}
+
+function buildRowDetails(linesByDate, totalsByDate, emptyLabel) {
+  const details = {};
+
+  for (const date of new Set([...Object.keys(linesByDate ?? {}), ...Object.keys(totalsByDate ?? {})])) {
+    details[date] = {
+      lines: linesByDate?.[date]?.length ? linesByDate[date] : [emptyLabel],
+      total: totalsByDate?.[date] ?? 0,
+    };
+  }
+
+  return details;
+}
+
+function buildEmptyCashflowDetails(label, date) {
+  if (label === "Saldo Inicial") {
+    return { lines: ["Sin arrastre previo."], total: 0 };
+  }
+
+  return { lines: ["Sin movimientos registrados."], total: 0 };
+}
+
+function getMonthDateParts(dateKey) {
+  const baseDate = parseDateKey(dateKey);
+  const year = baseDate.getFullYear();
+  const month = baseDate.getMonth();
+  const totalDays = new Date(year, month + 1, 0).getDate();
+  const formatter = new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "2-digit" });
+
+  return Array.from({ length: totalDays }, (_, index) => {
+    const current = new Date(year, month, index + 1);
+    return {
+      key: localDate(current),
+      shortLabel: formatter.format(current),
+      yearLabel: String(year),
+    };
+  });
+}
+
+function buildRecurringDates({ startDate, frequency, endDate, isRecurringIndefinite, displayEnd }) {
+  if (!startDate) return [];
+
+  const start = parseDateKey(startDate);
+  const limit = parseDateKey(displayEnd);
+  const explicitEnd = endDate ? parseDateKey(endDate) : null;
+
+  if (Number.isNaN(start.getTime()) || Number.isNaN(limit.getTime()) || start > limit) {
+    return [];
+  }
+
+  if (frequency === "Unico") {
+    return [localDate(start)];
+  }
+
+  if (!isRecurringIndefinite && !explicitEnd) {
+    return [localDate(start)];
+  }
+
+  const effectiveEnd = explicitEnd && explicitEnd < limit ? explicitEnd : limit;
+  const anchorDay = start.getDate();
+  const dates = [];
+  let current = new Date(start);
+  let guard = 0;
+
+  while (current <= effectiveEnd && guard < 5000) {
+    dates.push(localDate(current));
+
+    if (frequency === "Semanal") {
+      current = addDays(current, 7);
+    } else if (frequency === "Bi-semanal") {
+      current = addDays(current, 14);
+    } else if (frequency === "Mensual") {
+      current = addMonthsPreservingDay(current, anchorDay);
+    } else {
+      break;
+    }
+
+    guard += 1;
+  }
+
+  return dates;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function addMonthsPreservingDay(date, desiredDay) {
+  const nextMonthIndex = date.getMonth() + 1;
+  const nextYear = date.getFullYear() + Math.floor(nextMonthIndex / 12);
+  const nextMonth = nextMonthIndex % 12;
+  const lastDay = new Date(nextYear, nextMonth + 1, 0).getDate();
+  return new Date(nextYear, nextMonth, Math.min(desiredDay, lastDay));
+}
+
+function parseDateKey(value) {
+  return new Date(`${value}T00:00:00`);
+}
+
+function getExpenseCategoryGroup(category) {
+  return expenseCategoryGroups[category] ?? "variable";
+}
+
+function increaseDateValue(target, date, amount) {
+  target[date] = (target[date] ?? 0) + (Number(amount) || 0);
+}
+
+function appendDateLine(target, date, line) {
+  if (!target[date]) {
+    target[date] = [];
+  }
+
+  target[date].push(line);
+}
+
+function formatCashflowLine({ amount, currency, label, date }) {
+  return `${money(amount, currency || "USD")} - ${label} (${date})`;
+}
+
+function formatCashflowAmount(value) {
+  return money(value, "USD");
 }
 
 function normalizeSortText(value) {

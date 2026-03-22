@@ -557,6 +557,157 @@ button {
   font-size: 0.8rem;
 }
 
+.cashflow-panel {
+  position: relative;
+  gap: 0.9rem;
+}
+
+.cashflow-month-label {
+  color: var(--accent-strong);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.cashflow-table-wrap {
+  overflow: auto;
+  max-width: 100%;
+  border: 1px solid var(--line-strong);
+  background: var(--panel-strong);
+}
+
+.cashflow-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.cashflow-table th,
+.cashflow-table td {
+  min-width: 78px;
+  padding: 0.72rem 0.62rem;
+  border: 1px solid rgba(126, 147, 173, 0.28);
+  text-align: center;
+  font-size: 0.79rem;
+}
+
+.cashflow-table td {
+  cursor: help;
+}
+
+.cashflow-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: #f7fbff;
+  color: #0a67f2;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.cashflow-day-head span {
+  display: block;
+}
+
+.cashflow-sticky {
+  position: sticky;
+  left: 0;
+  z-index: 2;
+  background: #ffffff;
+}
+
+.cashflow-concept-head {
+  min-width: 190px;
+  text-align: left;
+  z-index: 4;
+}
+
+.cashflow-row-label {
+  min-width: 190px;
+  text-align: left;
+  color: #13253a;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.cashflow-balance-row .cashflow-row-label,
+.cashflow-summary-row .cashflow-row-label,
+.cashflow-total-row .cashflow-row-label,
+.cashflow-final-row .cashflow-row-label {
+  color: #0f1e2f;
+}
+
+.cashflow-total-row td,
+.cashflow-total-row .cashflow-row-label,
+.cashflow-balance-row td,
+.cashflow-balance-row .cashflow-row-label {
+  background: #f6f8fc;
+  font-weight: 700;
+}
+
+.cashflow-final-row td,
+.cashflow-final-row .cashflow-row-label {
+  background: #f4f8ff;
+  color: #0a67f2;
+  font-weight: 800;
+}
+
+.cashflow-table .today-column {
+  background:
+    repeating-linear-gradient(-45deg, rgba(30, 118, 255, 0.08) 0, rgba(30, 118, 255, 0.08) 2px, transparent 2px, transparent 6px),
+    #f7fbff;
+}
+
+.cashflow-tooltip {
+  position: fixed;
+  z-index: 20;
+  width: min(300px, calc(100vw - 24px));
+  padding: 0.85rem 0.95rem;
+  border: 1px solid rgba(74, 99, 129, 0.28);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.98);
+  box-shadow: 0 14px 30px rgba(17, 37, 61, 0.14);
+  pointer-events: none;
+}
+
+.cashflow-tooltip strong,
+.cashflow-tooltip span,
+.cashflow-tooltip p {
+  display: block;
+}
+
+.cashflow-tooltip strong {
+  color: var(--text);
+  font-size: 0.84rem;
+}
+
+.cashflow-tooltip span {
+  margin-top: 0.15rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
+.cashflow-tooltip-lines {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.65rem;
+}
+
+.cashflow-tooltip p {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.cashflow-tooltip-total {
+  margin-top: 0.75rem !important;
+  padding-top: 0.55rem;
+  border-top: 1px solid rgba(87, 112, 144, 0.18);
+  font-weight: 700;
+}
+
 .table-wrap {
   overflow-x: auto;
   border: 1px solid var(--line-strong);
