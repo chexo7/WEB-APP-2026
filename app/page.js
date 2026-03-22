@@ -1277,41 +1277,57 @@ export default function HomePage() {
 
               <div className="cashflow-month-label">{cashflowModel.rangeLabel}</div>
 
-              <div className="cashflow-table-wrap" onMouseLeave={() => setCashflowTooltip(null)} ref={cashflowScrollRef}>
-                <table className="cashflow-table">
-                  <thead>
-                    <tr>
-                      <th className="cashflow-sticky cashflow-concept-head">Categoria / Concepto</th>
-                      {cashflowModel.dates.map((date) => (
-                        <th
-                          className={date.key === cashflowModel.todayKey ? "cashflow-day-head today-column" : "cashflow-day-head"}
-                          key={date.key}
-                          ref={date.key === cashflowModel.todayKey ? currentDayColumnRef : null}
-                        >
-                          <span>{date.shortLabel}</span>
-                          <span>{date.yearLabel}</span>
-                        </th>
+              <div className="cashflow-grid" onMouseLeave={() => setCashflowTooltip(null)}>
+                <div className="cashflow-label-pane">
+                  <table className="cashflow-label-table">
+                    <thead>
+                      <tr>
+                        <th className="cashflow-concept-head">Categoria / Concepto</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cashflowModel.rows.map((row) => (
+                        <tr className={row.className} key={`label-${row.key}`}>
+                          <th className="cashflow-row-label">{row.label}</th>
+                        </tr>
                       ))}
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {cashflowModel.rows.map((row) => (
-                      <tr className={row.className} key={row.key}>
-                        <th className="cashflow-sticky cashflow-row-label">{row.label}</th>
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="cashflow-table-wrap" ref={cashflowScrollRef}>
+                  <table className="cashflow-data-table">
+                    <thead>
+                      <tr>
                         {cashflowModel.dates.map((date) => (
+                          <th
+                            className={date.key === cashflowModel.todayKey ? "cashflow-day-head today-column" : "cashflow-day-head"}
+                            key={date.key}
+                            ref={date.key === cashflowModel.todayKey ? currentDayColumnRef : null}
+                          >
+                            <span>{date.shortLabel}</span>
+                            <span>{date.yearLabel}</span>
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {cashflowModel.rows.map((row) => (
+                        <tr className={row.className} key={row.key}>
+                          {cashflowModel.dates.map((date) => (
                           <td
                             className={date.key === cashflowModel.todayKey ? "today-column" : ""}
                             key={`${row.key}-${date.key}`}
                             onMouseEnter={(event) => showCashflowTooltip(event, row, date.key)}
-                            onMouseLeave={() => setCashflowTooltip(null)}
                           >
                             {formatCashflowAmount(row.values?.[date.key] ?? 0)}
                           </td>
-                        ))}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
 
               {cashflowTooltip ? (
