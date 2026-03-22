@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 
 const defaultCredentials = { email: "ssfamiliausa@gmail.com", password: "" };
@@ -275,6 +276,18 @@ export default function HomePage() {
         analysisSettings,
       }),
     [analysisSettings, budgets, expenses, incomes, todayKey],
+  );
+  const balanceTrendModel = useMemo(
+    () =>
+      buildBalanceTrendModel({
+        budgets,
+        expenses,
+        incomes,
+        adjustments,
+        currentDateKey: todayKey,
+        analysisSettings,
+      }),
+    [adjustments, analysisSettings, budgets, expenses, incomes, todayKey],
   );
   const cashflowModel = useMemo(
     () =>
@@ -608,6 +621,8 @@ export default function HomePage() {
     const nextSettings = {
       startDate: String(settingsForm.startDate ?? "").trim(),
       endDate: String(settingsForm.endDate ?? "").trim(),
+      chartStartMonth: String(settingsForm.chartStartMonth ?? "").trim(),
+      chartEndMonth: String(settingsForm.chartEndMonth ?? "").trim(),
     };
     const error = validateAnalysisSettings(nextSettings);
 
@@ -630,6 +645,8 @@ export default function HomePage() {
     const nextSettings = {
       startDate: String(settingsForm.startDate ?? "").trim(),
       endDate: String(settingsForm.endDate ?? "").trim(),
+      chartStartMonth: String(settingsForm.chartStartMonth ?? "").trim(),
+      chartEndMonth: String(settingsForm.chartEndMonth ?? "").trim(),
     };
     const error = validateAnalysisSettings(nextSettings);
 
@@ -1559,7 +1576,7 @@ export default function HomePage() {
 
               <form className="panel-card panel-frame entry-form settings-entry-form" onSubmit={saveSettingsToDraft}>
                 <div className="settings-form-title">
-                  <h3>Rango del flujo de caja</h3>
+                  <h3>Rango del flujo de caja y graficos</h3>
                 </div>
 
                 <div className="settings-form-grid">
@@ -1581,10 +1598,28 @@ export default function HomePage() {
                       value={settingsForm.endDate}
                     />
                   </label>
+                  <label className="settings-field">
+                    Mes inicial del grafico:
+                    <input
+                      name="chartStartMonth"
+                      onChange={(e) => setSettingsForm((current) => ({ ...current, chartStartMonth: e.target.value }))}
+                      type="month"
+                      value={settingsForm.chartStartMonth}
+                    />
+                  </label>
+                  <label className="settings-field">
+                    Mes final del grafico:
+                    <input
+                      name="chartEndMonth"
+                      onChange={(e) => setSettingsForm((current) => ({ ...current, chartEndMonth: e.target.value }))}
+                      type="month"
+                      value={settingsForm.chartEndMonth}
+                    />
+                  </label>
                 </div>
 
                 <p className="settings-helper">
-                  Este rango define las columnas que se analizaran en la pestana de flujo de caja. Por defecto parte en 2026-01-01 y termina en 2030-12-31.
+                  El flujo de caja usa el rango diario completo, y los graficos usan meses completos entre el mes inicial y el mes final. Por ejemplo: abril 2026 hasta enero 2027.
                 </p>
 
                 <div className="button-row settings-button-row">
@@ -1702,31 +1737,32 @@ export default function HomePage() {
             <section className="workspace-stack charts-stack">
               <section className="panel-card panel-frame chart-panel">
                 <div className="panel-heading">
-                  <h2>Presupuesto vs Real</h2>
-                  <p>{budgetComparisonModel.chartWindowLabel}</p>
+                  <h2>Saldos diarios</h2>
+                  <p>{balanceTrendModel.rangeLabel}</p>
                 </div>
 
-                {budgetComparisonModel.chartPoints.length ? (
+                {balanceTrendModel.dailyPoints.length ? (
                   <>
                     <div className="chart-legend">
-                      <span><i className="legend-swatch budgeted" /> Presupuestado</span>
-                      <span><i className="legend-swatch actual" /> Real asociado a presupuestos</span>
+                      <span><i className="legend-swatch actual-balance" /> Saldo final estimado</span>
+                      <span><i className="legend-swatch budget-balance" /> Saldo presupuestado a la fecha</span>
                     </div>
-                    <BudgetTrendChart points={budgetComparisonModel.chartPoints} />
+                    <p className="chart-scroll-copy">Desliza lateralmente para recorrer todos los dias del periodo seleccionado.</p>
+                    <BalanceTrendChart model={balanceTrendModel} todayKey={todayKey} />
                   </>
                 ) : (
-                  <p className="placeholder-copy">No hay rango suficiente para construir la comparacion temporal.</p>
+                  <p className="placeholder-copy">No hay datos suficientes para construir la serie diaria del periodo seleccionado.</p>
                 )}
               </section>
 
               <section className="panel-card panel-frame chart-panel">
                 <div className="panel-heading">
                   <h2>Gasto no presupuestado</h2>
-                  <p>Serie separada para detectar compras reales que todavia no estan cubiertas por ningun bloque.</p>
+                  <p>{budgetComparisonModel.chartWindowLabel}</p>
                 </div>
 
                 {budgetComparisonModel.chartPoints.length ? (
-                  <UnbudgetedBarChart points={budgetComparisonModel.chartPoints} />
+                  <UnbudgetedBarTrendChart points={budgetComparisonModel.chartPoints} />
                 ) : (
                   <p className="placeholder-copy">Todavia no hay datos para mostrar esta serie.</p>
                 )}
@@ -1748,78 +1784,106 @@ function toggleBudgetCategory(category, setBudgetForm) {
   }));
 }
 
-function BudgetTrendChart({ points }) {
-  if (!points.length) return null;
+function BalanceTrendChart({ model, todayKey }) {
+  if (!model?.dailyPoints?.length) return null;
 
-  const width = 820;
-  const height = 240;
-  const paddingLeft = 34;
-  const paddingRight = 16;
-  const paddingTop = 18;
-  const paddingBottom = 28;
-  const chartWidth = width - paddingLeft - paddingRight;
-  const chartHeight = height - paddingTop - paddingBottom;
-  const maxValue = Math.max(...points.flatMap((point) => [point.budgeted, point.actual]), 1);
-  const guideValues = [maxValue, maxValue * 0.66, maxValue * 0.33, 0];
-  const getX = (index) => (points.length === 1 ? width / 2 : paddingLeft + (chartWidth * index) / (points.length - 1));
-  const getY = (value) => paddingTop + chartHeight - (Math.max(0, Number(value) || 0) / maxValue) * chartHeight;
-  const budgetPath = buildChartPolyline(points, getX, getY, "budgeted");
-  const actualPath = buildChartPolyline(points, getX, getY, "actual");
+  const width = Math.max(960, model.dailyPoints.length * 18);
 
   return (
-    <div className="trend-chart-shell">
-      <svg className="trend-chart-svg" preserveAspectRatio="none" viewBox={`0 0 ${width} ${height}`}>
-        {guideValues.map((value) => {
-          const y = getY(value);
-          return (
-            <g key={`guide-${value}`}>
-              <line className="trend-guide-line" x1={paddingLeft} x2={width - paddingRight} y1={y} y2={y} />
-              <text className="trend-guide-label" x={4} y={y + 4}>
-                {formatCompactCurrency(value)}
-              </text>
-            </g>
-          );
-        })}
-
-        <polyline className="trend-line budgeted" points={budgetPath} />
-        <polyline className="trend-line actual" points={actualPath} />
-
-        {points.map((point, index) => {
-          const x = getX(index);
-          return (
-            <g key={point.key}>
-              <circle className="trend-point budgeted" cx={x} cy={getY(point.budgeted)} r={4} />
-              <circle className="trend-point actual" cx={x} cy={getY(point.actual)} r={4} />
-            </g>
-          );
-        })}
-      </svg>
-
-      <div className="trend-axis-labels">
-        {points.map((point) => (
-          <span key={`label-${point.key}`}>{point.shortLabel}</span>
-        ))}
+    <div className="chart-scroll-shell">
+      <div className="chart-scroll-content" style={{ width: `${width}px`, height: "360px" }}>
+        <ResponsiveContainer height="100%" width="100%">
+          <LineChart data={model.dailyPoints} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
+            <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" />
+            <XAxis
+              dataKey="date"
+              minTickGap={28}
+              tick={{ fill: "#5a6f88", fontSize: 11 }}
+              tickFormatter={formatDailyChartTick}
+            />
+            <YAxis
+              domain={model.yDomain}
+              tick={{ fill: "#5a6f88", fontSize: 11 }}
+              tickFormatter={formatCompactCurrency}
+              width={72}
+            />
+            <Tooltip content={<BalanceChartTooltip />} />
+            {model.dailyPoints.some((point) => point.date === todayKey) ? (
+              <ReferenceLine label={{ fill: "#163e68", fontSize: 11, value: "Hoy" }} stroke="#163e68" strokeDasharray="4 4" x={todayKey} />
+            ) : null}
+            <Line
+              activeDot={{ r: 4 }}
+              dataKey="estimatedBalance"
+              dot={false}
+              name="Saldo final estimado"
+              stroke="#2f6b5f"
+              strokeWidth={3}
+              type="linear"
+            />
+            <Line
+              activeDot={{ r: 4 }}
+              dataKey="budgetBalance"
+              dot={false}
+              name="Saldo presupuestado a la fecha"
+              stroke="#2d6ca8"
+              strokeWidth={3}
+              type="linear"
+            />
+          </LineChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
 }
 
-function UnbudgetedBarChart({ points }) {
+function UnbudgetedBarTrendChart({ points }) {
   if (!points.length) return null;
 
-  const maxValue = Math.max(...points.map((point) => point.unbudgeted), 1);
+  const width = Math.max(640, points.length * 94);
 
   return (
-    <div className="bar-chart-grid">
-      {points.map((point) => (
-        <article className="bar-chart-item" key={point.key}>
-          <span className="bar-chart-value">{money(point.unbudgeted, "USD")}</span>
-          <div className="bar-track">
-            <div className="bar-fill" style={{ height: `${(Math.max(0, point.unbudgeted) / maxValue) * 100}%` }} />
-          </div>
-          <span className="bar-label">{point.shortLabel}</span>
-        </article>
-      ))}
+    <div className="chart-scroll-shell">
+      <div className="chart-scroll-content chart-scroll-content-bars" style={{ width: `${width}px`, height: "320px" }}>
+        <ResponsiveContainer height="100%" width="100%">
+          <BarChart data={points} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
+            <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="key" tick={{ fill: "#5a6f88", fontSize: 11 }} tickFormatter={formatMonthTick} />
+            <YAxis tick={{ fill: "#5a6f88", fontSize: 11 }} tickFormatter={formatCompactCurrency} width={72} />
+            <Tooltip content={<UnbudgetedChartTooltip />} />
+            <Bar dataKey="unbudgeted" fill="#b6651d" name="Gasto no presupuestado" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function BalanceChartTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+
+  const estimated = payload.find((entry) => entry.dataKey === "estimatedBalance")?.value ?? 0;
+  const budget = payload.find((entry) => entry.dataKey === "budgetBalance")?.value ?? 0;
+
+  return (
+    <div className="chart-tooltip">
+      <strong>{formatDateLabel(label)}</strong>
+      <p>Saldo final estimado: {money(estimated, "USD")}</p>
+      <p>Saldo presupuestado a la fecha: {money(budget, "USD")}</p>
+      <p>Diferencia: {money(estimated - budget, "USD")}</p>
+    </div>
+  );
+}
+
+function UnbudgetedChartTooltip({ active, payload }) {
+  if (!active || !payload?.length) return null;
+
+  const point = payload[0]?.payload;
+  if (!point) return null;
+
+  return (
+    <div className="chart-tooltip">
+      <strong>{point.fullLabel}</strong>
+      <p>Gasto no presupuestado: {money(point.unbudgeted, "USD")}</p>
     </div>
   );
 }
@@ -1922,9 +1986,12 @@ function defaultAdjustmentForm() {
 }
 
 function defaultAnalysisSettings() {
+  const defaults = defaultChartMonthRange("2026-01-01", "2030-12-31");
   return {
     startDate: "2026-01-01",
     endDate: "2030-12-31",
+    chartStartMonth: defaults.chartStartMonth,
+    chartEndMonth: defaults.chartEndMonth,
   };
 }
 
@@ -2158,6 +2225,14 @@ function validateAnalysisSettings(settings) {
   if (!String(settings?.startDate ?? "").trim()) return "La fecha base es obligatoria.";
   if (!String(settings?.endDate ?? "").trim()) return "La fecha de fin es obligatoria.";
   if (String(settings.startDate) > String(settings.endDate)) return "La fecha base no puede ser posterior a la fecha de fin.";
+  if (!String(settings?.chartStartMonth ?? "").trim()) return "El mes inicial del grafico es obligatorio.";
+  if (!String(settings?.chartEndMonth ?? "").trim()) return "El mes final del grafico es obligatorio.";
+  if (!isValidMonthKey(settings.chartStartMonth) || !isValidMonthKey(settings.chartEndMonth)) {
+    return "Selecciona meses validos para el grafico.";
+  }
+  if (String(settings.chartStartMonth) > String(settings.chartEndMonth)) {
+    return "El mes inicial del grafico no puede ser posterior al mes final.";
+  }
   return "";
 }
 
@@ -2313,8 +2388,9 @@ function getAdjustmentSortValue(adjustment, key) {
 
 function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDateKey, analysisSettings }) {
   const settings = sanitizeAnalysisSettings(analysisSettings);
+  const chartSettings = getChartMonthSettings(settings);
   const currentMonthKey = String(currentDateKey ?? "").slice(0, 7);
-  const monthParts = getMonthRangeParts(settings.startDate, settings.endDate);
+  const monthParts = getMonthRangePartsFromMonths(chartSettings.chartStartMonth, chartSettings.chartEndMonth);
   const monthMap = Object.fromEntries(monthParts.map((part) => [part.key, { ...part, budgeted: 0, actual: 0, unbudgeted: 0 }]));
   const budgetDisplayEnd = maxDateKey(
     settings.endDate,
@@ -2461,7 +2537,7 @@ function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDa
     actual: monthMap[part.key]?.actual ?? 0,
     unbudgeted: monthMap[part.key]?.unbudgeted ?? 0,
   }));
-  const chartPoints = selectChartWindow(monthlyPoints, currentMonthKey, 12);
+  const chartPoints = monthlyPoints;
 
   return {
     summary: {
@@ -2603,9 +2679,9 @@ function budgetRangesOverlap(left, right) {
   return left.startKey <= rightEnd && right.startKey <= leftEnd;
 }
 
-function getMonthRangeParts(startDateKey, endDateKey) {
-  const startDate = parseDateKey(startDateKey);
-  const endDate = parseDateKey(endDateKey);
+function getMonthRangePartsFromMonths(startMonthKey, endMonthKey) {
+  const startDate = parseDateKey(firstDayOfMonth(startMonthKey));
+  const endDate = parseDateKey(firstDayOfMonth(endMonthKey));
   const monthFormatter = new Intl.DateTimeFormat("es-CL", { month: "short" });
   const fullFormatter = new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" });
   const months = [];
@@ -2628,19 +2704,103 @@ function getMonthRangeParts(startDateKey, endDateKey) {
   return months;
 }
 
-function selectChartWindow(points, currentMonthKey, maxPoints = 12) {
-  if (points.length <= maxPoints) {
-    return points;
-  }
+function defaultChartMonthRange(startDateKey, endDateKey) {
+  const startMonth = String(startDateKey ?? "").slice(0, 7) || localDate().slice(0, 7);
+  const endMonth = String(endDateKey ?? "").slice(0, 7) || startMonth;
+  const cappedEndMonth = minMonthKey(endMonth, addMonthsToMonthKey(startMonth, 11));
 
-  let currentIndex = points.findIndex((point) => point.key === currentMonthKey);
-  if (currentIndex < 0) {
-    currentIndex = points[points.length - 1]?.key < currentMonthKey ? points.length - 1 : 0;
-  }
-  const preferredStart = Math.max(0, currentIndex - 5);
-  const end = Math.min(points.length, preferredStart + maxPoints);
-  const start = Math.max(0, end - maxPoints);
-  return points.slice(start, end);
+  return {
+    chartStartMonth: startMonth,
+    chartEndMonth: cappedEndMonth,
+  };
+}
+
+function getChartMonthSettings(settings) {
+  const sanitized = sanitizeAnalysisSettings(settings);
+  return {
+    chartStartMonth: sanitized.chartStartMonth,
+    chartEndMonth: sanitized.chartEndMonth,
+  };
+}
+
+function toChartAnalysisSettings(settings) {
+  const sanitized = sanitizeAnalysisSettings(settings);
+  return {
+    ...sanitized,
+    startDate: firstDayOfMonth(sanitized.chartStartMonth),
+    endDate: lastDayOfMonth(sanitized.chartEndMonth),
+  };
+}
+
+function firstDayOfMonth(monthKey) {
+  return `${monthKey}-01`;
+}
+
+function lastDayOfMonth(monthKey) {
+  const [year, month] = String(monthKey).split("-").map(Number);
+  if (!year || !month) return firstDayOfMonth(monthKey);
+  return localDate(new Date(year, month, 0));
+}
+
+function addMonthsToMonthKey(monthKey, monthsToAdd) {
+  const [year, month] = String(monthKey).split("-").map(Number);
+  if (!year || !month) return monthKey;
+  const next = new Date(year, month - 1 + Number(monthsToAdd || 0), 1);
+  return `${next.getFullYear()}-${String(next.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function minMonthKey(...values) {
+  const months = values.filter(Boolean).sort();
+  return months[0] ?? "";
+}
+
+function isValidMonthKey(value) {
+  return /^\d{4}-\d{2}$/.test(String(value ?? ""));
+}
+
+function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, currentDateKey, analysisSettings }) {
+  const chartRange = toChartAnalysisSettings(analysisSettings);
+  const budgetExpenses = budgets.map((budget) => ({
+    id: budget.id,
+    name: budget.name,
+    amount: budget.amount,
+    currency: budget.currency,
+    category: budget.linkedCategories?.[0] ?? "Otros",
+    frequency: budget.frequency,
+    movementDate: budget.startDate,
+    endDate: budget.endDate,
+    isRecurringIndefinite: budget.isRecurringIndefinite,
+    createdAt: budget.createdAt,
+  }));
+  const estimatedModel = buildCashflowModel({
+    expenses,
+    incomes,
+    adjustments,
+    currentDateKey,
+    analysisSettings: chartRange,
+  });
+  const budgetModel = buildCashflowModel({
+    expenses: budgetExpenses,
+    incomes,
+    adjustments,
+    currentDateKey,
+    analysisSettings: chartRange,
+  });
+  const estimatedRow = estimatedModel.rows.find((row) => row.key === "closingBalance");
+  const budgetRow = budgetModel.rows.find((row) => row.key === "closingBalance");
+  const dailyPoints = estimatedModel.dates.map((date) => ({
+    key: date.key,
+    date: date.key,
+    shortLabel: date.shortLabel,
+    estimatedBalance: estimatedRow?.values?.[date.key] ?? 0,
+    budgetBalance: budgetRow?.values?.[date.key] ?? 0,
+  }));
+
+  return {
+    dailyPoints,
+    yDomain: resolveBalanceChartDomain(dailyPoints),
+    rangeLabel: `${formatMonthLabel(chartRange.chartStartMonth)} - ${formatMonthLabel(chartRange.chartEndMonth)}`,
+  };
 }
 
 function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, analysisSettings }) {
@@ -3010,10 +3170,6 @@ function appendDateLine(target, date, line) {
   target[date].push(line);
 }
 
-function buildChartPolyline(points, getX, getY, key) {
-  return points.map((point, index) => `${getX(index)},${getY(point[key])}`).join(" ");
-}
-
 function formatCashflowLine({ amount, label, date }) {
   return `${formatCashflowAmount(amount)} - ${label} (${date})`;
 }
@@ -3031,12 +3187,22 @@ function sanitizeAnalysisSettings(settings) {
   const candidate = settings ?? {};
   const startDate = String(candidate.startDate ?? "2026-01-01");
   const endDate = String(candidate.endDate ?? "2030-12-31");
+  const chartDefaults = defaultChartMonthRange(startDate, endDate);
+  const chartStartMonth = String(candidate.chartStartMonth ?? chartDefaults.chartStartMonth);
+  const chartEndMonth = String(candidate.chartEndMonth ?? chartDefaults.chartEndMonth);
 
-  if (!startDate || !endDate || startDate > endDate) {
+  if (
+    !startDate ||
+    !endDate ||
+    startDate > endDate ||
+    !isValidMonthKey(chartStartMonth) ||
+    !isValidMonthKey(chartEndMonth) ||
+    chartStartMonth > chartEndMonth
+  ) {
     return defaultAnalysisSettings();
   }
 
-  return { startDate, endDate };
+  return { startDate, endDate, chartStartMonth, chartEndMonth };
 }
 
 function normalizeSortText(value) {
@@ -3079,6 +3245,50 @@ function formatCompactCurrency(value) {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(Number(value) || 0);
+}
+
+function formatMonthLabel(monthKey) {
+  if (!isValidMonthKey(monthKey)) return monthKey;
+  return capitalizeLabel(
+    new Intl.DateTimeFormat("es-CL", { month: "long", year: "numeric" }).format(parseDateKey(firstDayOfMonth(monthKey))),
+  );
+}
+
+function formatMonthTick(monthKey) {
+  if (!isValidMonthKey(monthKey)) return monthKey;
+  const date = parseDateKey(firstDayOfMonth(monthKey));
+  const monthLabel = capitalizeLabel(new Intl.DateTimeFormat("es-CL", { month: "short" }).format(date).replace(".", ""));
+  return `${monthLabel} ${String(date.getFullYear()).slice(-2)}`;
+}
+
+function formatDailyChartTick(dateKey) {
+  if (!dateKey) return "";
+  const date = parseDateKey(dateKey);
+  if (Number.isNaN(date.getTime())) return dateKey;
+  const isMonthStart = date.getDate() === 1;
+
+  return isMonthStart
+    ? capitalizeLabel(new Intl.DateTimeFormat("es-CL", { day: "2-digit", month: "short" }).format(date).replace(".", ""))
+    : new Intl.DateTimeFormat("es-CL", { day: "2-digit" }).format(date);
+}
+
+function resolveBalanceChartDomain(points) {
+  const values = points.flatMap((point) => [point.estimatedBalance, point.budgetBalance]).filter((value) => Number.isFinite(Number(value)));
+  if (!values.length) return [0, 1];
+
+  let minValue = Math.min(...values);
+  let maxValue = Math.max(...values);
+
+  if (minValue === maxValue) {
+    const padding = Math.max(Math.abs(minValue) * 0.08, 50);
+    return [minValue - padding, maxValue + padding];
+  }
+
+  const padding = Math.max((maxValue - minValue) * 0.08, 50);
+  minValue -= padding;
+  maxValue += padding;
+
+  return [Math.floor(minValue), Math.ceil(maxValue)];
 }
 
 function labelVersion(version) {
