@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { Tabs as MantineTabs } from "@mantine/core";
 import {
   addDays as addCalendarDays,
   addMonths as addCalendarMonths,
@@ -18,7 +19,17 @@ import { es } from "date-fns/locale";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ExpensesTable from "@/components/expenses-table";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
+import { formatCompactMoneyAmount, formatMoneyAmount, sumMoneyValues } from "@/lib/money";
+import { buildRecurringDatesWithRRule } from "@/lib/recurrence";
+import {
+  validateAdjustmentRecord,
+  validateAnalysisSettingsRecord,
+  validateBudgetRecord,
+  validateExpenseRecord,
+  validateIncomeRecord,
+} from "@/lib/validation";
 
 const defaultCredentials = { email: "ssfamiliausa@gmail.com", password: "" };
 const tabs = [
@@ -257,9 +268,15 @@ export default function HomePage() {
     [adjustmentEntries, adjustmentSort],
   );
 
-  const reimbursementTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? Number(item.amount) || 0 : 0), 0);
-  const incomeTotal = incomes.reduce((sum, item) => sum + (item.isReimbursement ? 0 : Number(item.amount) || 0), 0);
-  const adjustmentTotal = adjustments.reduce((sum, item) => sum + (Number(item.amount) || 0), 0);
+  const reimbursementTotal = useMemo(
+    () => sumMoneyValues(incomes.filter((item) => item.isReimbursement).map((item) => item.amount), "USD"),
+    [incomes],
+  );
+  const incomeTotal = useMemo(
+    () => sumMoneyValues(incomes.filter((item) => !item.isReimbursement).map((item) => item.amount), "USD"),
+    [incomes],
+  );
+  const adjustmentTotal = useMemo(() => sumMoneyValues(adjustments.map((item) => item.amount), "USD"), [adjustments]);
   const expenseCategoryTotals = useMemo(() => {
     const totals = Object.fromEntries(expenseCategories.map((category) => [category, 0]));
 
@@ -276,8 +293,8 @@ export default function HomePage() {
 
     return totals;
   }, [expenses, incomes]);
-  const expenseTotal = Object.values(expenseCategoryTotals).reduce((sum, amount) => sum + (Number(amount) || 0), 0);
-  const balance = incomeTotal - expenseTotal + adjustmentTotal;
+  const expenseTotal = useMemo(() => sumMoneyValues(Object.values(expenseCategoryTotals), "USD"), [expenseCategoryTotals]);
+  const balance = useMemo(() => sumMoneyValues([incomeTotal, -expenseTotal, adjustmentTotal], "USD"), [adjustmentTotal, expenseTotal, incomeTotal]);
   const hasUnsavedChanges = JSON.stringify(sanitizeWorkspace(draft)) !== JSON.stringify(sanitizeWorkspace(selectedVersion?.payload));
   const todayKey = localDate();
   const analysisSettings = draft.analysisSettings ?? defaultAnalysisSettings();
@@ -825,18 +842,25 @@ export default function HomePage() {
       </section>
 
       <section className="tabs-card">
-        <div className="tabs-bar" role="tablist" aria-label="Pestanas principales">
-          {tabs.map((tab) => (
-            <button
-              className={activeTab === tab.id ? "tab-button active" : "tab-button"}
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              type="button"
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
+        <MantineTabs
+          classNames={{
+            list: "mantine-tabs-bar",
+            root: "mantine-tabs-root",
+            tab: "mantine-tab-button",
+          }}
+          keepMounted={false}
+          onChange={(value) => setActiveTab(value ?? "summary")}
+          value={activeTab}
+          variant="outline"
+        >
+          <MantineTabs.List aria-label="Pestanas principales">
+            {tabs.map((tab) => (
+              <MantineTabs.Tab key={tab.id} value={tab.id}>
+                {tab.label}
+              </MantineTabs.Tab>
+            ))}
+          </MantineTabs.List>
+        </MantineTabs>
 
         <div className="tab-panel">
           {activeTab === "summary" ? (
@@ -1051,47 +1075,19 @@ export default function HomePage() {
                   <p>Las entradas quedan visibles como lista editable antes de guardarlas como nueva version. La recurrencia sigue disponible como modo legacy.</p>
                 </div>
 
-                <div className="table-wrap">
-                  {expenses.length ? (
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>{renderSortHeader("Fecha Movimiento", "movementDate", expenseSort, setExpenseSort)}</th>
-                          <th>{renderSortHeader("Nombre", "name", expenseSort, setExpenseSort)}</th>
-                          <th>{renderSortHeader("Categoria", "category", expenseSort, setExpenseSort)}</th>
-                          <th>{renderSortHeader("Frecuencia", "frequency", expenseSort, setExpenseSort)}</th>
-                          <th>{renderSortHeader("Fecha Fin", "endDate", expenseSort, setExpenseSort)}</th>
-                          <th>{renderSortHeader("Estado", "status", expenseSort, setExpenseSort)}</th>
-                          <th>{renderSortHeader("Moneda", "currency", expenseSort, setExpenseSort)}</th>
-                          <th>{renderSortHeader("Monto", "amount", expenseSort, setExpenseSort)}</th>
-                          <th>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {expenses.map((expense) => (
-                          <tr key={expense.id}>
-                            <td>{formatDateLabel(expense.movementDate ?? expense.date)}</td>
-                            <td>{expense.name ?? expense.merchantName ?? expense.detail ?? "Sin nombre"}</td>
-                            <td>{expense.category || "Otros"}</td>
-                            <td>{expense.frequency || "Unico"}</td>
-                            <td>{expense.isRecurringIndefinite ? "Sin fin" : expense.endDate ? formatDateLabel(expense.endDate) : "No aplica"}</td>
-                            <td>{expense.isRecurringIndefinite ? "Recurrente sin fin" : expense.endDate ? "Con termino" : "Unico"}</td>
-                            <td>{expense.currency || "USD"}</td>
-                            <td className="amount-cell">{money(expense.amount, expense.currency)}</td>
-                            <td className="actions-cell">
-                              <div className="table-actions">
-                                <button className="secondary-button" onClick={() => editExpense(expense.id)} type="button">Modificar</button>
-                                <button className="danger-button" onClick={() => deleteExpense(expense.id)} type="button">Quitar</button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <p className="muted-text">Todavia no hay gastos en la lista.</p>
-                  )}
-                </div>
+                {expenses.length ? (
+                  <ExpensesTable
+                    expenseSort={expenseSort}
+                    expenses={expenses}
+                    formatDateLabel={formatDateLabel}
+                    formatMoneyLabel={money}
+                    onDeleteExpense={deleteExpense}
+                    onEditExpense={editExpense}
+                    onSortChange={setExpenseSort}
+                  />
+                ) : (
+                  <p className="muted-text">Todavia no hay gastos en la lista.</p>
+                )}
               </section>
             </section>
           ) : null}
@@ -2186,69 +2182,32 @@ function buildKey(snapshotDate, versionId) {
 }
 
 function validateExpense(expense) {
-  if (!String(expense.name ?? "").trim()) return "El gasto debe tener nombre.";
-  if (!Number.isFinite(Number(expense.amount)) || Number(expense.amount) <= 0) return "El gasto debe tener un valor mayor que cero.";
-  if (!expenseCategories.includes(String(expense.category ?? ""))) return "Selecciona una categoria valida para el gasto.";
-  if (!expenseFrequencies.includes(String(expense.frequency ?? ""))) return "Selecciona una frecuencia valida para el gasto.";
-  if (!String(expense.movementDate ?? "").trim()) return "El gasto debe tener fecha de movimiento.";
-  if (!expense.isRecurringIndefinite && expense.endDate && String(expense.endDate) < String(expense.movementDate)) {
-    return "La fecha de fin del gasto no puede ser anterior a la fecha de movimiento.";
-  }
-  return "";
+  return validateExpenseRecord(expense, {
+    categories: expenseCategories,
+    frequencies: expenseFrequencies,
+  });
 }
 
 function validateBudget(budget) {
-  if (!String(budget.name ?? "").trim()) return "El presupuesto debe tener nombre.";
-  if (!Number.isFinite(Number(budget.amount)) || Number(budget.amount) <= 0) return "El presupuesto debe tener un valor mayor que cero.";
-  if (!expenseFrequencies.includes(String(budget.frequency ?? ""))) return "Selecciona una frecuencia valida para el presupuesto.";
-  if (!String(budget.startDate ?? "").trim()) return "El presupuesto debe tener fecha de inicio.";
-  if (!Array.isArray(budget.linkedCategories) || !budget.linkedCategories.length) {
-    return "Selecciona al menos una categoria para el presupuesto.";
-  }
-  if (budget.linkedCategories.some((category) => !expenseCategories.includes(String(category ?? "")))) {
-    return "El presupuesto contiene categorias no validas.";
-  }
-  if (!budget.isRecurringIndefinite && budget.endDate && String(budget.endDate) < String(budget.startDate)) {
-    return "La fecha de fin del presupuesto no puede ser anterior a la fecha de inicio.";
-  }
-  return "";
+  return validateBudgetRecord(budget, {
+    categories: expenseCategories,
+    frequencies: expenseFrequencies,
+  });
 }
 
 function validateIncome(income) {
-  if (!String(income.name ?? "").trim()) return "El ingreso debe tener nombre.";
-  if (!Number.isFinite(Number(income.amount)) || Number(income.amount) <= 0) return "El ingreso debe tener un valor mayor que cero.";
-  if (!incomeFrequencies.includes(String(income.frequency ?? ""))) return "Selecciona una frecuencia valida para el ingreso.";
-  if (!String(income.startDate ?? "").trim()) return "El ingreso debe tener fecha de inicio o unica.";
-  if (income.isReimbursement && !expenseCategories.includes(String(income.reimbursementCategory ?? ""))) {
-    return "Selecciona la categoria que se debe ajustar con el reembolso.";
-  }
-  if (!income.isRecurringIndefinite && income.endDate && String(income.endDate) < String(income.startDate)) {
-    return "La fecha de fin del ingreso no puede ser anterior a la fecha de inicio.";
-  }
-  return "";
+  return validateIncomeRecord(income, {
+    categories: expenseCategories,
+    frequencies: incomeFrequencies,
+  });
 }
 
 function validateAdjustment(adjustment) {
-  if (!String(adjustment.date ?? "").trim()) return "El cuadre debe tener fecha.";
-  if (!Number.isFinite(Number(adjustment.amount)) || Number(adjustment.amount) === 0) {
-    return "El cuadre debe tener un valor distinto de cero.";
-  }
-  return "";
+  return validateAdjustmentRecord(adjustment);
 }
 
 function validateAnalysisSettings(settings) {
-  if (!String(settings?.startDate ?? "").trim()) return "La fecha base es obligatoria.";
-  if (!String(settings?.endDate ?? "").trim()) return "La fecha de fin es obligatoria.";
-  if (String(settings.startDate) > String(settings.endDate)) return "La fecha base no puede ser posterior a la fecha de fin.";
-  if (!String(settings?.chartStartMonth ?? "").trim()) return "El mes inicial del grafico es obligatorio.";
-  if (!String(settings?.chartEndMonth ?? "").trim()) return "El mes final del grafico es obligatorio.";
-  if (!isValidMonthKey(settings.chartStartMonth) || !isValidMonthKey(settings.chartEndMonth)) {
-    return "Selecciona meses validos para el grafico.";
-  }
-  if (String(settings.chartStartMonth) > String(settings.chartEndMonth)) {
-    return "El mes inicial del grafico no puede ser posterior al mes final.";
-  }
-  return "";
+  return validateAnalysisSettingsRecord(settings);
 }
 
 function validateBudgetCollection(budgets) {
@@ -3062,47 +3021,13 @@ function getDateRangeParts(startDateKey, endDateKey) {
 }
 
 function buildRecurringDates({ startDate, frequency, endDate, isRecurringIndefinite, displayEnd }) {
-  if (!startDate) return [];
-
-  const start = parseDateKey(startDate);
-  const limit = parseDateKey(displayEnd);
-  const explicitEnd = endDate ? parseDateKey(endDate) : null;
-
-  if (!isValidDate(start) || !isValidDate(limit) || start > limit) {
-    return [];
-  }
-
-  if (frequency === "Unico") {
-    return [localDate(start)];
-  }
-
-  if (!isRecurringIndefinite && !explicitEnd) {
-    return [localDate(start)];
-  }
-
-  const effectiveEnd = explicitEnd && explicitEnd < limit ? explicitEnd : limit;
-  const anchorDay = start.getDate();
-  const dates = [];
-  let current = new Date(start);
-  let guard = 0;
-
-  while (current <= effectiveEnd && guard < 5000) {
-    dates.push(localDate(current));
-
-    if (frequency === "Semanal") {
-      current = addDays(current, 7);
-    } else if (frequency === "Bi-semanal") {
-      current = addDays(current, 14);
-    } else if (frequency === "Mensual") {
-      current = addMonthsPreservingDay(current, anchorDay);
-    } else {
-      break;
-    }
-
-    guard += 1;
-  }
-
-  return dates;
+  return buildRecurringDatesWithRRule({
+    startDate,
+    frequency,
+    endDate,
+    isRecurringIndefinite,
+    displayEnd,
+  });
 }
 
 function addDays(date, days) {
@@ -3221,20 +3146,11 @@ function localDate(date = new Date()) {
 }
 
 function money(value, currency) {
-  return new Intl.NumberFormat("es-CL", {
-    style: "currency",
-    currency: currency || "USD",
-    maximumFractionDigits: currency === "CLP" ? 0 : 2,
-  }).format(Number(value) || 0);
+  return formatMoneyAmount(value, currency || "USD", "es-CL");
 }
 
 function formatCompactCurrency(value) {
-  return new Intl.NumberFormat("en-US", {
-    style: "currency",
-    currency: "USD",
-    notation: "compact",
-    maximumFractionDigits: 1,
-  }).format(Number(value) || 0);
+  return formatCompactMoneyAmount(value, "USD");
 }
 
 function formatMonthLabel(monthKey) {
