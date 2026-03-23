@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Tabs as MantineTabs } from "@mantine/core";
+import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Tabs as MantineTabs, Text } from "@mantine/core";
 import {
   addDays as addCalendarDays,
   addMonths as addCalendarMonths,
   eachDayOfInterval,
   eachMonthOfInterval,
   endOfMonth as getEndOfMonth,
+  endOfWeek as getEndOfWeek,
   format as formatDateValue,
   getDaysInMonth,
   isValid as isValidDate,
   parseISO,
   setDate as setDayOfMonth,
   startOfMonth as getStartOfMonth,
+  startOfWeek as getStartOfWeek,
 } from "date-fns";
 import { es } from "date-fns/locale";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
@@ -89,6 +91,7 @@ export default function HomePage() {
   const [authError, setAuthError] = useState("");
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState("summary");
+  const [cashflowResolution, setCashflowResolution] = useState("weekly");
   const [snapshotTree, setSnapshotTree] = useState({});
   const [selectedVersionKey, setSelectedVersionKey] = useState("");
   const [loadedVersionKey, setLoadedVersionKey] = useState("");
@@ -111,8 +114,11 @@ export default function HomePage() {
   const [incomeSort, setIncomeSort] = useState({ key: "startDate", direction: "desc" });
   const [adjustmentSort, setAdjustmentSort] = useState({ key: "date", direction: "desc" });
   const [cashflowTooltip, setCashflowTooltip] = useState(null);
+  const [cashflowModelCache, setCashflowModelCache] = useState({ daily: null, weekly: null, monthly: null });
   const cashflowScrollRef = useRef(null);
   const currentDayColumnRef = useRef(null);
+  const displayedTab = useDeferredValue(activeTab);
+  const isTabTransitionPending = displayedTab !== activeTab;
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -321,7 +327,7 @@ export default function HomePage() {
       }),
     [adjustments, analysisSettings, budgets, expenses, incomes, todayKey],
   );
-  const cashflowModel = useMemo(
+  const cashflowBaseModel = useMemo(
     () =>
       buildCashflowModel({
         expenses,
@@ -332,10 +338,22 @@ export default function HomePage() {
       }),
     [adjustments, analysisSettings, expenses, incomes, todayKey],
   );
+  const weeklyCashflowModel = useMemo(() => buildCashflowResolutionModel(cashflowBaseModel, "weekly"), [cashflowBaseModel]);
+  const cashflowModel = useMemo(() => {
+    if (cashflowResolution === "daily") {
+      return cashflowModelCache.daily ?? cashflowBaseModel;
+    }
+
+    if (cashflowResolution === "weekly") {
+      return cashflowModelCache.weekly ?? weeklyCashflowModel;
+    }
+
+    return cashflowModelCache.monthly ?? buildCashflowResolutionModel(cashflowBaseModel, "monthly");
+  }, [cashflowBaseModel, cashflowModelCache, cashflowResolution, weeklyCashflowModel]);
   const draftRecordCount = expenses.length + budgets.length + incomes.length + adjustments.length;
 
   useEffect(() => {
-    if (activeTab !== "cashflow") {
+    if (displayedTab !== "cashflow") {
       setCashflowTooltip(null);
       return;
     }
@@ -351,7 +369,63 @@ export default function HomePage() {
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [activeTab, cashflowModel.todayKey, cashflowModel.dates.length]);
+  }, [cashflowModel.dates.length, cashflowModel.todayKey, displayedTab]);
+
+  useEffect(() => {
+    setCashflowModelCache({
+      daily: cashflowBaseModel,
+      weekly: weeklyCashflowModel,
+      monthly: null,
+    });
+
+    if (typeof window === "undefined") {
+      setCashflowModelCache({
+        daily: cashflowBaseModel,
+        weekly: weeklyCashflowModel,
+        monthly: buildCashflowResolutionModel(cashflowBaseModel, "monthly"),
+      });
+      return;
+    }
+
+    let cancelled = false;
+    const warmMonthlyModel = () => {
+      if (cancelled) return;
+
+      setCashflowModelCache({
+        daily: cashflowBaseModel,
+        weekly: weeklyCashflowModel,
+        monthly: buildCashflowResolutionModel(cashflowBaseModel, "monthly"),
+      });
+    };
+    const timeoutId = window.setTimeout(warmMonthlyModel, 160);
+    const idleId =
+      "requestIdleCallback" in window ? window.requestIdleCallback(warmMonthlyModel, { timeout: 1000 }) : null;
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timeoutId);
+
+      if (idleId !== null && "cancelIdleCallback" in window) {
+        window.cancelIdleCallback(idleId);
+      }
+    };
+  }, [cashflowBaseModel, weeklyCashflowModel]);
+
+  useEffect(() => {
+    if (!hasUnsavedChanges) {
+      return undefined;
+    }
+
+    const handleBeforeUnload = (event) => {
+      event.preventDefault();
+      event.returnValue = "";
+      return "";
+    };
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasUnsavedChanges]);
 
   const handleLogin = async (event) => {
     event.preventDefault();
@@ -633,16 +707,17 @@ export default function HomePage() {
   };
 
   const showCashflowTooltip = (event, row, date) => {
-    const details = row.details?.[date] ?? buildEmptyCashflowDetails(row.label, date);
+    const details = row.details?.[date.key] ?? buildEmptyCashflowDetails(row.label, date.key);
     const rect = event.currentTarget.getBoundingClientRect();
     const left = Math.min(rect.left, Math.max(16, window.innerWidth - 320));
     const top = Math.min(rect.bottom + 10, window.innerHeight - 180);
 
     setCashflowTooltip({
+      date: date.key,
+      dateLabel: date.fullLabel ?? formatDateLabel(date.key),
       left,
       top,
       title: row.label,
-      date,
       lines: details.lines,
       total: details.total,
     });
@@ -673,27 +748,14 @@ export default function HomePage() {
     setSuccessMessage("");
   };
 
-  const saveSettingsVersion = async () => {
-    const nextSettings = {
-      startDate: String(settingsForm.startDate ?? "").trim(),
-      endDate: String(settingsForm.endDate ?? "").trim(),
-      chartStartMonth: String(settingsForm.chartStartMonth ?? "").trim(),
-      chartEndMonth: String(settingsForm.chartEndMonth ?? "").trim(),
-    };
-    const error = validateAnalysisSettings(nextSettings);
+  const handleGlobalSave = async () => {
+    await saveVersion("cambios", draft, "Todos los cambios se guardaron como nueva entrada.");
+  };
 
-    if (error) {
-      setDataError(error);
-      return;
-    }
-
-    const nextDraft = {
-      ...draft,
-      analysisSettings: nextSettings,
-    };
-
-    setDraft(nextDraft);
-    await saveVersion("ajustes", nextDraft, "Los ajustes se guardaron como nueva entrada.");
+  const handleTabChange = (value) => {
+    startTransition(() => {
+      setActiveTab(value ?? "summary");
+    });
   };
 
   const discardChanges = () => {
@@ -849,7 +911,7 @@ export default function HomePage() {
             tab: "mantine-tab-button",
           }}
           keepMounted={false}
-          onChange={(value) => setActiveTab(value ?? "summary")}
+          onChange={handleTabChange}
           value={activeTab}
           variant="outline"
         >
@@ -862,8 +924,35 @@ export default function HomePage() {
           </MantineTabs.List>
         </MantineTabs>
 
+        <section className="save-bar-shell">
+          <Paper className="save-bar" p="md" radius="lg" shadow="sm" withBorder>
+            <div className="save-bar-copy">
+              <p className="eyebrow">Guardado General</p>
+              <h2>Borrador activo</h2>
+              <Text c="dimmed" size="sm">
+                Todas las pestañas editan el mismo borrador. Guarda una sola vez cuando quieras confirmar los cambios.
+              </Text>
+            </div>
+
+            <Group className="save-bar-actions" gap="sm">
+              <MantineBadge color={hasUnsavedChanges ? "yellow" : "teal"} radius="sm" size="lg" variant="light">
+                {hasUnsavedChanges ? "Cambios pendientes" : "Todo guardado"}
+              </MantineBadge>
+              {isTabTransitionPending ? <Loader color="blue" size="sm" /> : null}
+              <MantineButton disabled={!hasUnsavedChanges || saveState === "saving"} onClick={discardChanges} variant="default">
+                Descartar
+              </MantineButton>
+              <MantineButton disabled={!hasUnsavedChanges} loading={saveState === "saving"} onClick={handleGlobalSave}>
+                Guardar cambios
+              </MantineButton>
+            </Group>
+          </Paper>
+          {successMessage ? <p className="success-text">{successMessage}</p> : null}
+          {dataError ? <p className="error-text">{dataError}</p> : null}
+        </section>
+
         <div className="tab-panel">
-          {activeTab === "summary" ? (
+          {displayedTab === "summary" ? (
             <section className="summary-panel">
               <div className="summary-grid">
                 <article className="summary-card">
@@ -936,7 +1025,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {activeTab === "expenses" ? (
+          {displayedTab === "expenses" ? (
             <section className="workspace-stack expenses-stack">
               <div className="expense-tab-header">
                 <h2>Gestion de Gastos</h2>
@@ -1056,13 +1145,11 @@ export default function HomePage() {
                   </button>
                 </div>
 
-                <div className="button-row">
+                <div className="save-hint-row">
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <button className="primary-button" disabled={saveState === "saving"} onClick={() => saveVersion("gastos")} type="button">
-                    {saveState === "saving" ? "Guardando..." : "Guardar lista de gastos"}
-                  </button>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -1092,7 +1179,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {activeTab === "budgets" ? (
+          {displayedTab === "budgets" ? (
             <section className="workspace-stack budgets-stack">
               <div className="budget-tab-header">
                 <h2>Presupuesto</h2>
@@ -1219,13 +1306,11 @@ export default function HomePage() {
                   </button>
                 </div>
 
-                <div className="button-row">
+                <div className="save-hint-row">
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <button className="primary-button" disabled={saveState === "saving"} onClick={() => saveVersion("presupuestos")} type="button">
-                    {saveState === "saving" ? "Guardando..." : "Guardar presupuestos"}
-                  </button>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -1301,7 +1386,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {activeTab === "incomes" ? (
+          {displayedTab === "incomes" ? (
             <section className="workspace-stack incomes-stack">
               <div className="income-tab-header">
                 <h2>Gestion de Ingresos</h2>
@@ -1415,13 +1500,11 @@ export default function HomePage() {
                   </button>
                 </div>
 
-                <div className="button-row income-button-row">
+                <div className="save-hint-row income-button-row">
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <button className="primary-button" disabled={saveState === "saving"} onClick={() => saveVersion("ingresos")} type="button">
-                    {saveState === "saving" ? "Guardando..." : "Guardar lista de ingresos"}
-                  </button>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -1481,7 +1564,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {activeTab === "reconciliation" ? (
+          {displayedTab === "reconciliation" ? (
             <section className="workspace-stack reconciliation-stack">
               <div className="reconciliation-tab-header">
                 <h2>Gestion de Cuadre</h2>
@@ -1523,13 +1606,11 @@ export default function HomePage() {
                   </button>
                 </div>
 
-                <div className="button-row reconciliation-button-row">
+                <div className="save-hint-row reconciliation-button-row">
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <button className="primary-button" disabled={saveState === "saving"} onClick={() => saveVersion("cuadres")} type="button">
-                    {saveState === "saving" ? "Guardando..." : "Guardar lista de cuadres"}
-                  </button>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -1579,7 +1660,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {activeTab === "settings" ? (
+          {displayedTab === "settings" ? (
             <section className="workspace-stack settings-stack">
               <div className="settings-tab-header">
                 <h2>Ajustes de Analisis</h2>
@@ -1646,13 +1727,11 @@ export default function HomePage() {
                   </button>
                 </div>
 
-                <div className="button-row settings-button-row">
+                <div className="save-hint-row settings-button-row">
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <button className="primary-button" disabled={saveState === "saving"} onClick={saveSettingsVersion} type="button">
-                    {saveState === "saving" ? "Guardando..." : "Guardar ajustes"}
-                  </button>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -1661,16 +1740,43 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {activeTab === "cashflow" ? (
+          {displayedTab === "cashflow" ? (
             <section className="panel-card cashflow-panel">
               <div className="panel-heading">
                 <h2>Flujo de caja detallado</h2>
-                <p>
-                  Vista diaria segun el rango configurado en ajustes. El dia de hoy queda resaltado y el cuadro se centra automaticamente cuando entra en el rango.
-                </p>
+                <p>{getCashflowResolutionCopy(cashflowResolution)}</p>
               </div>
 
-              <div className="cashflow-month-label">{cashflowModel.rangeLabel}</div>
+              <div className="cashflow-toolbar">
+                <div className="cashflow-month-label">{cashflowModel.rangeLabel}</div>
+
+                <div className="cashflow-resolution-shell">
+                  <MantineTabs
+                    classNames={{
+                      list: "cashflow-resolution-list",
+                      root: "cashflow-resolution-root",
+                      tab: "cashflow-resolution-tab",
+                    }}
+                    keepMounted={false}
+                    onChange={(value) => setCashflowResolution(value ?? "weekly")}
+                    value={cashflowResolution}
+                    variant="pills"
+                  >
+                    <MantineTabs.List aria-label="Resolucion de tabla">
+                      <MantineTabs.Tab value="daily">Diaria</MantineTabs.Tab>
+                      <MantineTabs.Tab value="weekly">Semanal</MantineTabs.Tab>
+                      <MantineTabs.Tab value="monthly">Mensual</MantineTabs.Tab>
+                    </MantineTabs.List>
+                  </MantineTabs>
+                  <span className="cashflow-resolution-note">
+                    {cashflowResolution === "weekly"
+                      ? "Predeterminado. La semana inicia el lunes."
+                      : cashflowResolution === "daily"
+                        ? "Cada columna representa un dia."
+                        : "Cada columna representa un mes."}
+                  </span>
+                </div>
+              </div>
 
               <div className="cashflow-grid" onMouseLeave={() => setCashflowTooltip(null)}>
                 <div className="cashflow-label-pane">
@@ -1713,7 +1819,7 @@ export default function HomePage() {
                           <td
                             className={date.key === cashflowModel.todayKey ? "today-column" : ""}
                             key={`${row.key}-${date.key}`}
-                            onMouseEnter={(event) => showCashflowTooltip(event, row, date.key)}
+                            onMouseEnter={(event) => showCashflowTooltip(event, row, date)}
                           >
                             {formatCashflowAmount(row.values?.[date.key] ?? 0)}
                           </td>
@@ -1728,7 +1834,7 @@ export default function HomePage() {
               {cashflowTooltip ? (
                 <div className="cashflow-tooltip" style={{ left: `${cashflowTooltip.left}px`, top: `${cashflowTooltip.top}px` }}>
                   <strong>{cashflowTooltip.title}</strong>
-                  <span>{formatDateLabel(cashflowTooltip.date)}</span>
+                  <span>{cashflowTooltip.dateLabel}</span>
                   {cashflowTooltip.lines.length ? (
                     <div className="cashflow-tooltip-lines">
                       {cashflowTooltip.lines.map((line, index) => (
@@ -1744,7 +1850,7 @@ export default function HomePage() {
             </section>
           ) : null}
 
-          {activeTab === "charts" ? (
+          {displayedTab === "charts" ? (
             <section className="workspace-stack charts-stack">
               <section className="panel-card panel-frame chart-panel">
                 <div className="panel-heading">
@@ -1801,10 +1907,26 @@ function BalanceTrendChart({ model, todayKey }) {
   const width = Math.max(960, model.dailyPoints.length * 18);
 
   return (
-    <div className="chart-scroll-shell">
-      <div className="chart-scroll-content" style={{ width: `${width}px`, height: "360px" }}>
+    <div className="chart-sync-shell">
+      <div className="chart-axis-pane">
         <ResponsiveContainer height="100%" width="100%">
-          <LineChart data={model.dailyPoints} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
+          <LineChart data={model.dailyPoints} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
+            <YAxis
+              domain={model.yDomain}
+              tick={{ fill: "#5a6f88", fontSize: 11 }}
+              tickFormatter={formatCompactCurrency}
+              width={72}
+            />
+            <Line dataKey="estimatedBalance" dot={false} isAnimationActive={false} stroke="transparent" strokeWidth={0} />
+            <Line dataKey="budgetBalance" dot={false} isAnimationActive={false} stroke="transparent" strokeWidth={0} />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+
+      <div className="chart-plot-scroll">
+        <div className="chart-scroll-content chart-scroll-content-linear" style={{ width: `${width}px`, height: "360px" }}>
+          <ResponsiveContainer height="100%" width="100%">
+            <LineChart data={model.dailyPoints} margin={{ top: 16, right: 20, left: 0, bottom: 8 }}>
             <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" />
             <XAxis
               dataKey="date"
@@ -1812,12 +1934,7 @@ function BalanceTrendChart({ model, todayKey }) {
               tick={{ fill: "#5a6f88", fontSize: 11 }}
               tickFormatter={formatDailyChartTick}
             />
-            <YAxis
-              domain={model.yDomain}
-              tick={{ fill: "#5a6f88", fontSize: 11 }}
-              tickFormatter={formatCompactCurrency}
-              width={72}
-            />
+            <YAxis domain={model.yDomain} hide />
             <Tooltip content={<BalanceChartTooltip />} />
             {model.dailyPoints.some((point) => point.date === todayKey) ? (
               <ReferenceLine label={{ fill: "#163e68", fontSize: 11, value: "Hoy" }} stroke="#163e68" strokeDasharray="4 4" x={todayKey} />
@@ -1840,8 +1957,9 @@ function BalanceTrendChart({ model, todayKey }) {
               strokeWidth={3}
               type="linear"
             />
-          </LineChart>
-        </ResponsiveContainer>
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -2975,6 +3093,226 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
   };
 }
 
+function buildCashflowResolutionModel(baseModel, resolution) {
+  if (!baseModel?.dates?.length || resolution === "daily") {
+    return baseModel;
+  }
+
+  const periods = buildCashflowPeriods(baseModel.dates, resolution);
+  if (!periods.length) {
+    return baseModel;
+  }
+
+  const rowsByKey = Object.fromEntries(baseModel.rows.map((row) => [row.key, row]));
+  const periodSummaries = Object.fromEntries(
+    periods.map((period) => {
+      const opening = rowsByKey.openingBalance?.values?.[period.startKey] ?? 0;
+      const netFlow = sumPeriodValues(period.dateKeys.map((dateKey) => rowsByKey.netFlow?.values?.[dateKey] ?? 0));
+      const adjustment = sumPeriodValues(period.dateKeys.map((dateKey) => rowsByKey.reconciliation?.values?.[dateKey] ?? 0));
+      const closing = rowsByKey.closingBalance?.values?.[period.endKey] ?? 0;
+
+      return [
+        period.key,
+        {
+          adjustment,
+          closing,
+          netFlow,
+          opening,
+        },
+      ];
+    }),
+  );
+  const rows = baseModel.rows.map((row) => {
+    const values = {};
+    const details = {};
+
+    for (const period of periods) {
+      const summary = periodSummaries[period.key];
+
+      if (row.key === "openingBalance") {
+        values[period.key] = summary.opening;
+        details[period.key] = {
+          lines: [`Saldo inicial del periodo: ${formatCashflowAmount(summary.opening)}`],
+          total: summary.opening,
+        };
+        continue;
+      }
+
+      if (row.key === "closingBalance") {
+        values[period.key] = summary.closing;
+        details[period.key] = {
+          lines: [
+            `Saldo inicial del periodo: ${formatCashflowAmount(summary.opening)}`,
+            `Flujo neto acumulado: ${formatCashflowAmount(summary.netFlow)}`,
+            `Cuadre acumulado: ${formatCashflowAmount(summary.adjustment)}`,
+            `Saldo final del periodo: ${formatCashflowAmount(summary.closing)}`,
+          ],
+          total: summary.closing,
+        };
+        continue;
+      }
+
+      const total = sumPeriodValues(period.dateKeys.map((dateKey) => row.values?.[dateKey] ?? 0));
+
+      values[period.key] = total;
+      details[period.key] = {
+        lines: collectCashflowPeriodLines(row, period),
+        total,
+      };
+    }
+
+    return {
+      ...row,
+      details,
+      values,
+    };
+  });
+  const todayPeriod = periods.find((period) => period.dateKeys.includes(baseModel.todayKey));
+
+  return {
+    ...baseModel,
+    dates: periods.map(({ dateKeys, endKey, startKey, ...date }) => date),
+    rows,
+    todayKey: todayPeriod?.key ?? baseModel.todayKey,
+    rangeLabel: formatCashflowRangeLabel(periods, resolution),
+  };
+}
+
+function buildCashflowPeriods(dates, resolution) {
+  const periods = new Map();
+
+  for (const date of dates) {
+    const descriptor = getCashflowPeriodDescriptor(date.key, resolution);
+    if (!descriptor) continue;
+
+    if (!periods.has(descriptor.key)) {
+      periods.set(descriptor.key, {
+        ...descriptor,
+        dateKeys: [],
+      });
+    }
+
+    periods.get(descriptor.key).dateKeys.push(date.key);
+  }
+
+  return Array.from(periods.values()).map((period) => ({
+    ...period,
+    endKey: period.dateKeys[period.dateKeys.length - 1],
+    startKey: period.dateKeys[0],
+  }));
+}
+
+function getCashflowPeriodDescriptor(dateKey, resolution) {
+  const date = parseDateKey(dateKey);
+
+  if (!isValidDate(date)) {
+    return null;
+  }
+
+  if (resolution === "monthly") {
+    const monthKey = formatDateValue(date, "yyyy-MM");
+
+    return {
+      key: monthKey,
+      fullLabel: formatMonthLabel(monthKey),
+      shortLabel: capitalizeLabel(formatDateValue(date, "MMM", { locale: spanishDateLocale }).replace(".", "")),
+      yearLabel: formatDateValue(date, "yyyy"),
+    };
+  }
+
+  if (resolution === "weekly") {
+    const startDate = getStartOfWeek(date, { weekStartsOn: 1 });
+    const endDate = getEndOfWeek(date, { weekStartsOn: 1 });
+
+    return {
+      key: `week-${localDate(startDate)}`,
+      fullLabel: `Semana ${formatDateLabel(localDate(startDate))} - ${formatDateLabel(localDate(endDate))}`,
+      shortLabel: `${formatDateValue(startDate, "dd/MM")} - ${formatDateValue(endDate, "dd/MM")}`,
+      yearLabel: formatDateValue(startDate, "yyyy"),
+    };
+  }
+
+  return {
+    key: dateKey,
+    fullLabel: formatDateLabel(dateKey),
+    shortLabel: formatDateValue(date, "dd/MM"),
+    yearLabel: formatDateValue(date, "yyyy"),
+  };
+}
+
+function collectCashflowPeriodLines(row, period) {
+  const lines = [];
+  let hiddenCount = 0;
+
+  for (const dateKey of period.dateKeys) {
+    const rowDetails = row.details?.[dateKey];
+    const nextLines = (rowDetails?.lines ?? []).filter((line) => !isGenericCashflowLine(line));
+
+    if (!nextLines.length) {
+      continue;
+    }
+
+    for (const line of nextLines) {
+      if (lines.length < 16) {
+        lines.push(line);
+      } else {
+        hiddenCount += 1;
+      }
+    }
+  }
+
+  if (!lines.length) {
+    return buildEmptyCashflowDetails(row.label, period.startKey).lines;
+  }
+
+  if (hiddenCount > 0) {
+    lines.push(`...y ${hiddenCount} movimientos mas.`);
+  }
+
+  return lines;
+}
+
+function isGenericCashflowLine(line) {
+  return [
+    "Sin ajustes de cuadre.",
+    "Sin arrastre previo.",
+    "Sin gastos fijos.",
+    "Sin gastos variables.",
+    "Sin ingresos reales.",
+    "Sin movimientos.",
+    "Sin movimientos de flujo.",
+    "Sin movimientos registrados.",
+  ].includes(line);
+}
+
+function sumPeriodValues(values) {
+  return values.reduce((sum, value) => sum + (Number(value) || 0), 0);
+}
+
+function formatCashflowRangeLabel(periods, resolution) {
+  if (!periods.length) {
+    return "";
+  }
+
+  const firstPeriod = periods[0];
+  const lastPeriod = periods[periods.length - 1];
+  const prefix = resolution === "weekly" ? "Semanal" : "Mensual";
+
+  return `${prefix} | ${formatDateLabel(firstPeriod.startKey)} - ${formatDateLabel(lastPeriod.endKey)}`;
+}
+
+function getCashflowResolutionCopy(resolution) {
+  if (resolution === "daily") {
+    return "Vista diaria del rango configurado. El dia de hoy queda resaltado y la tabla se centra automaticamente cuando entra en el rango.";
+  }
+
+  if (resolution === "monthly") {
+    return "Vista mensual resumida del rango configurado. Ideal para revisar tendencias largas sin perder contexto.";
+  }
+
+  return "Vista semanal del rango configurado. Por defecto cada semana comienza en lunes para que la navegacion sea mas liviana y fluida.";
+}
+
 function makeCashflowRow(key, label, values, details, className = "") {
   return {
     key,
@@ -3014,6 +3352,7 @@ function getDateRangeParts(startDateKey, endDateKey) {
   return eachDayOfInterval({ start: startDate, end: endDate })
     .slice(0, 10000)
     .map((date) => ({
+      fullLabel: formatDateLabel(localDate(date)),
       key: localDate(date),
       shortLabel: formatDateValue(date, "dd/MM"),
       yearLabel: formatDateValue(date, "yyyy"),
