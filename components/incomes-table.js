@@ -4,16 +4,22 @@ import { useMemo } from "react";
 import { Badge, Button, Group, ScrollArea, Table, Text } from "@mantine/core";
 import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-table";
 
-function getExpenseStatus(expense) {
-  if (expense.isRecurringIndefinite) {
+function getIncomeStatus(income) {
+  if (income.isRecurringIndefinite) {
     return { color: "blue", label: "Recurrente sin fin" };
   }
 
-  if (expense.endDate) {
+  if (income.endDate) {
     return { color: "teal", label: "Con termino" };
   }
 
   return { color: "gray", label: "Unico" };
+}
+
+function getIncomeType(income) {
+  return income.isReimbursement
+    ? { color: "orange", label: "Reembolso" }
+    : { color: "green", label: "Ingreso real" };
 }
 
 function getSortIndicator(currentSort, key) {
@@ -34,7 +40,7 @@ function nextSortState(currentSort, key) {
 
   return {
     key,
-    direction: ["movementDate", "endDate", "amount"].includes(key) ? "desc" : "asc",
+    direction: ["startDate", "endDate", "amount"].includes(key) ? "desc" : "asc",
   };
 }
 
@@ -53,50 +59,70 @@ function SortHeader({ currentSort, label, onSortChange, sortKey }) {
   );
 }
 
-export default function ExpensesTable({
-  expenses,
-  expenseSort,
-  onDeleteExpense,
-  onEditExpense,
-  onSortChange,
+export default function IncomesTable({
   formatDateLabel,
   formatMoneyLabel,
+  formatTimestampLabel,
+  incomeSort,
+  incomes,
+  onDeleteIncome,
+  onEditIncome,
+  onSortChange,
 }) {
   const columns = useMemo(
     () => [
       {
-        id: "movementDate",
-        header: () => (
-          <SortHeader currentSort={expenseSort} label="Fecha Movimiento" onSortChange={onSortChange} sortKey="movementDate" />
-        ),
-        cell: ({ row }) => formatDateLabel(row.original.movementDate ?? row.original.date),
+        id: "startDate",
+        header: () => <SortHeader currentSort={incomeSort} label="Fecha Inicio" onSortChange={onSortChange} sortKey="startDate" />,
+        cell: ({ row }) =>
+          row.original.startDate ? formatDateLabel(row.original.startDate) : formatTimestampLabel(row.original.createdAt),
       },
       {
         id: "name",
-        header: () => <SortHeader currentSort={expenseSort} label="Nombre" onSortChange={onSortChange} sortKey="name" />,
-        cell: ({ row }) => row.original.name ?? row.original.merchantName ?? row.original.detail ?? "Sin nombre",
+        header: () => <SortHeader currentSort={incomeSort} label="Nombre" onSortChange={onSortChange} sortKey="name" />,
+        cell: ({ row }) => row.original.name || "Sin nombre",
       },
       {
-        id: "category",
-        header: () => <SortHeader currentSort={expenseSort} label="Categoria" onSortChange={onSortChange} sortKey="category" />,
-        cell: ({ row }) => row.original.category || "Otros",
+        id: "type",
+        header: () => <SortHeader currentSort={incomeSort} label="Tipo" onSortChange={onSortChange} sortKey="type" />,
+        cell: ({ row }) => {
+          const type = getIncomeType(row.original);
+
+          return (
+            <Badge color={type.color} radius="sm" size="sm" variant="light">
+              {type.label}
+            </Badge>
+          );
+        },
+      },
+      {
+        id: "reimbursementCategory",
+        header: () => (
+          <SortHeader
+            currentSort={incomeSort}
+            label="Categoria Ajuste"
+            onSortChange={onSortChange}
+            sortKey="reimbursementCategory"
+          />
+        ),
+        cell: ({ row }) => (row.original.isReimbursement ? row.original.reimbursementCategory || "Sin categoria" : "No aplica"),
       },
       {
         id: "frequency",
-        header: () => <SortHeader currentSort={expenseSort} label="Frecuencia" onSortChange={onSortChange} sortKey="frequency" />,
-        cell: ({ row }) => row.original.frequency || "Unico",
+        header: () => <SortHeader currentSort={incomeSort} label="Frecuencia" onSortChange={onSortChange} sortKey="frequency" />,
+        cell: ({ row }) => row.original.frequency || "Mensual",
       },
       {
         id: "endDate",
-        header: () => <SortHeader currentSort={expenseSort} label="Fecha Fin" onSortChange={onSortChange} sortKey="endDate" />,
+        header: () => <SortHeader currentSort={incomeSort} label="Fecha Fin" onSortChange={onSortChange} sortKey="endDate" />,
         cell: ({ row }) =>
           row.original.isRecurringIndefinite ? "Sin fin" : row.original.endDate ? formatDateLabel(row.original.endDate) : "No aplica",
       },
       {
         id: "status",
-        header: () => <SortHeader currentSort={expenseSort} label="Estado" onSortChange={onSortChange} sortKey="status" />,
+        header: () => <SortHeader currentSort={incomeSort} label="Estado" onSortChange={onSortChange} sortKey="status" />,
         cell: ({ row }) => {
-          const status = getExpenseStatus(row.original);
+          const status = getIncomeStatus(row.original);
 
           return (
             <Badge color={status.color} radius="sm" size="sm" variant="light">
@@ -107,15 +133,15 @@ export default function ExpensesTable({
       },
       {
         id: "currency",
-        header: () => <SortHeader currentSort={expenseSort} label="Moneda" onSortChange={onSortChange} sortKey="currency" />,
+        header: () => <SortHeader currentSort={incomeSort} label="Moneda" onSortChange={onSortChange} sortKey="currency" />,
         cell: ({ row }) => row.original.currency || "USD",
       },
       {
         id: "amount",
-        header: () => <SortHeader currentSort={expenseSort} label="Monto" onSortChange={onSortChange} sortKey="amount" />,
+        header: () => <SortHeader currentSort={incomeSort} label="Monto" onSortChange={onSortChange} sortKey="amount" />,
         cell: ({ row }) => (
           <Text c="blue.8" className="mantine-amount-cell" fw={700} size="sm">
-            {formatMoneyLabel(row.original.amount, row.original.currency)}
+            {formatMoneyLabel(row.original.amount, row.original.currency || "USD")}
           </Text>
         ),
       },
@@ -124,21 +150,21 @@ export default function ExpensesTable({
         header: () => "Acciones",
         cell: ({ row }) => (
           <Group gap="xs" wrap="wrap">
-            <Button onClick={() => onEditExpense(row.original.id)} size="xs" variant="default">
+            <Button onClick={() => onEditIncome(row.original.id)} size="xs" variant="default">
               Modificar
             </Button>
-            <Button color="red" onClick={() => onDeleteExpense(row.original.id)} size="xs" variant="light">
+            <Button color="red" onClick={() => onDeleteIncome(row.original.id)} size="xs" variant="light">
               Quitar
             </Button>
           </Group>
         ),
       },
     ],
-    [expenseSort, formatDateLabel, formatMoneyLabel, onDeleteExpense, onEditExpense, onSortChange],
+    [formatDateLabel, formatMoneyLabel, formatTimestampLabel, incomeSort, onDeleteIncome, onEditIncome, onSortChange],
   );
 
   const table = useReactTable({
-    data: expenses,
+    data: incomes,
     columns,
     getCoreRowModel: getCoreRowModel(),
     getRowId: (row) => row.id,

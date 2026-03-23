@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Tabs as MantineTabs, Text } from "@mantine/core";
+import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Progress, Tabs as MantineTabs, Text } from "@mantine/core";
 import {
   addDays as addCalendarDays,
   addMonths as addCalendarMonths,
@@ -22,6 +22,8 @@ import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebas
 import { get, onValue, push, ref, set } from "firebase/database";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ExpensesTable from "@/components/expenses-table";
+import IncomesTable from "@/components/incomes-table";
+import ReconciliationTable from "@/components/reconciliation-table";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 import { formatCompactMoneyAmount, formatMoneyAmount, sumMoneyValues } from "@/lib/money";
 import { buildRecurringDatesWithRRule } from "@/lib/recurrence";
@@ -955,23 +957,23 @@ export default function HomePage() {
           {displayedTab === "summary" ? (
             <section className="summary-panel">
               <div className="summary-grid">
-                <article className="summary-card">
+                <article className="summary-card summary-card-positive">
                   <span>Ingresos reales</span>
                   <strong>{money(incomeTotal, "USD")}</strong>
                 </article>
-                <article className="summary-card">
+                <article className="summary-card summary-card-soft">
                   <span>Reembolsos aplicados</span>
                   <strong>{money(reimbursementTotal, "USD")}</strong>
                 </article>
-                <article className="summary-card">
+                <article className="summary-card summary-card-warning">
                   <span>Gastos netos</span>
                   <strong>{money(expenseTotal, "USD")}</strong>
                 </article>
-                <article className="summary-card">
+                <article className="summary-card summary-card-neutral">
                   <span>Cuadres</span>
                   <strong>{money(adjustmentTotal, "USD")}</strong>
                 </article>
-                <article className="summary-card">
+                <article className="summary-card summary-card-balance">
                   <span>Saldo actual</span>
                   <strong>{money(balance, "USD")}</strong>
                 </article>
@@ -1344,7 +1346,9 @@ export default function HomePage() {
                             <h3>{budget.name || "Sin nombre"}</h3>
                             <p className="budget-card-period">{budget.rangeLabel}</p>
                           </div>
-                          <span className={`budget-status-chip ${budget.status}`}>{budget.frequency}</span>
+                          <MantineBadge color={getBudgetStatusColor(budget.status)} radius="sm" size="lg" variant="light">
+                            {budget.frequency}
+                          </MantineBadge>
                         </div>
 
                         <div className="budget-card-metrics">
@@ -1362,6 +1366,19 @@ export default function HomePage() {
                           </div>
                         </div>
 
+                        <div className="budget-progress-shell">
+                          <div className="budget-progress-copy">
+                            <span>Uso del bloque</span>
+                            <strong>{Math.round(getBudgetUsagePercent(budget))}%</strong>
+                          </div>
+                          <Progress
+                            color={budget.differenceAmount >= 0 ? "teal" : "orange"}
+                            radius="xl"
+                            size="md"
+                            value={getBudgetUsagePercent(budget)}
+                          />
+                        </div>
+
                         <p className="budget-card-schedule">{budget.scheduleLabel}</p>
 
                         <div className="budget-chip-row">
@@ -1373,8 +1390,12 @@ export default function HomePage() {
                         </div>
 
                         <div className="table-actions">
-                          <button className="secondary-button" onClick={() => editBudget(budget.id)} type="button">Modificar</button>
-                          <button className="danger-button" onClick={() => deleteBudget(budget.id)} type="button">Quitar</button>
+                          <MantineButton onClick={() => editBudget(budget.id)} size="xs" variant="default">
+                            Modificar
+                          </MantineButton>
+                          <MantineButton color="red" onClick={() => deleteBudget(budget.id)} size="xs" variant="light">
+                            Quitar
+                          </MantineButton>
                         </div>
                       </article>
                     ))}
@@ -1517,49 +1538,20 @@ export default function HomePage() {
                   <p>Los reembolsos ajustan la categoria indicada y no se suman como ingreso real.</p>
                 </div>
 
-                <div className="table-wrap">
-                  {incomes.length ? (
-                    <table className="data-table">
-                      <thead>
-                        <tr>
-                          <th>{renderSortHeader("Fecha Inicio", "startDate", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Nombre", "name", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Tipo", "type", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Categoria Ajuste", "reimbursementCategory", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Frecuencia", "frequency", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Fecha Fin", "endDate", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Estado", "status", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Moneda", "currency", incomeSort, setIncomeSort)}</th>
-                          <th>{renderSortHeader("Monto", "amount", incomeSort, setIncomeSort)}</th>
-                          <th>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {incomes.map((income) => (
-                          <tr key={income.id}>
-                            <td>{income.startDate ? formatDateLabel(income.startDate) : formatTimestampLabel(income.createdAt)}</td>
-                            <td>{income.name || "Sin nombre"}</td>
-                            <td>{income.isReimbursement ? "Reembolso" : "Ingreso real"}</td>
-                            <td>{income.isReimbursement ? income.reimbursementCategory || "Sin categoria" : "No aplica"}</td>
-                            <td>{income.frequency || "Mensual"}</td>
-                            <td>{income.isRecurringIndefinite ? "Sin fin" : income.endDate ? formatDateLabel(income.endDate) : "No aplica"}</td>
-                            <td>{income.isRecurringIndefinite ? "Recurrente sin fin" : income.endDate ? "Con termino" : "Unico"}</td>
-                            <td>{income.currency || "USD"}</td>
-                            <td className="amount-cell">{money(income.amount, income.currency || "USD")}</td>
-                            <td className="actions-cell">
-                              <div className="table-actions">
-                                <button className="secondary-button" onClick={() => editIncome(income.id)} type="button">Modificar</button>
-                                <button className="danger-button" onClick={() => deleteIncome(income.id)} type="button">Quitar</button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <p className="muted-text">Todavia no hay ingresos en la lista.</p>
-                  )}
-                </div>
+                {incomes.length ? (
+                  <IncomesTable
+                    formatDateLabel={formatDateLabel}
+                    formatMoneyLabel={money}
+                    formatTimestampLabel={formatTimestampLabel}
+                    incomeSort={incomeSort}
+                    incomes={incomes}
+                    onDeleteIncome={deleteIncome}
+                    onEditIncome={editIncome}
+                    onSortChange={setIncomeSort}
+                  />
+                ) : (
+                  <p className="muted-text">Todavia no hay ingresos en la lista.</p>
+                )}
               </section>
             </section>
           ) : null}
@@ -1623,39 +1615,19 @@ export default function HomePage() {
                   <p>Estos ajustes corrigen el saldo del flujo de caja sin sumarse como ingreso ni clasificarse como gasto.</p>
                 </div>
 
-                <div className="table-wrap">
-                  {adjustments.length ? (
-                    <table className="data-table reconciliation-table">
-                      <thead>
-                        <tr>
-                          <th>{renderSortHeader("Fecha Ajuste", "date", adjustmentSort, setAdjustmentSort)}</th>
-                          <th>{renderSortHeader("Categoria", "type", adjustmentSort, setAdjustmentSort)}</th>
-                          <th>{renderSortHeader("Ajuste", "amount", adjustmentSort, setAdjustmentSort)}</th>
-                          <th>{renderSortHeader("Impacto", "impact", adjustmentSort, setAdjustmentSort)}</th>
-                          <th>Acciones</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {adjustments.map((adjustment) => (
-                          <tr key={adjustment.id}>
-                            <td>{formatDateLabel(adjustment.date)}</td>
-                            <td>Cuadre</td>
-                            <td className="amount-cell">{money(adjustment.amount, "USD")}</td>
-                            <td>{Number(adjustment.amount) < 0 ? "Reduce saldo" : Number(adjustment.amount) > 0 ? "Aumenta saldo" : "Sin efecto"}</td>
-                            <td className="actions-cell">
-                              <div className="table-actions">
-                                <button className="secondary-button" onClick={() => editAdjustment(adjustment.id)} type="button">Modificar</button>
-                                <button className="danger-button" onClick={() => deleteAdjustment(adjustment.id)} type="button">Quitar</button>
-                              </div>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  ) : (
-                    <p className="muted-text">Todavia no hay ajustes de cuadre en la lista.</p>
-                  )}
-                </div>
+                {adjustments.length ? (
+                  <ReconciliationTable
+                    adjustments={adjustments}
+                    adjustmentSort={adjustmentSort}
+                    formatDateLabel={formatDateLabel}
+                    formatMoneyLabel={money}
+                    onDeleteAdjustment={deleteAdjustment}
+                    onEditAdjustment={editAdjustment}
+                    onSortChange={setAdjustmentSort}
+                  />
+                ) : (
+                  <p className="muted-text">Todavia no hay ajustes de cuadre en la lista.</p>
+                )}
               </section>
             </section>
           ) : null}
@@ -1901,6 +1873,33 @@ function toggleBudgetCategory(category, setBudgetForm) {
   }));
 }
 
+function getBudgetStatusColor(status) {
+  if (status === "active") {
+    return "teal";
+  }
+
+  if (status === "upcoming") {
+    return "yellow";
+  }
+
+  if (status === "ended") {
+    return "gray";
+  }
+
+  return "blue";
+}
+
+function getBudgetUsagePercent(budget) {
+  const plannedAmount = Number(budget?.plannedAmount) || 0;
+  const actualAmount = Math.max(0, Number(budget?.actualAmount) || 0);
+
+  if (plannedAmount <= 0) {
+    return actualAmount > 0 ? 100 : 0;
+  }
+
+  return Math.max(0, Math.min(100, (actualAmount / plannedAmount) * 100));
+}
+
 function BalanceTrendChart({ model, todayKey }) {
   if (!model?.dailyPoints?.length) return null;
 
@@ -1971,17 +1970,34 @@ function UnbudgetedBarTrendChart({ points }) {
   const width = Math.max(640, points.length * 94);
 
   return (
-    <div className="chart-scroll-shell">
-      <div className="chart-scroll-content chart-scroll-content-bars" style={{ width: `${width}px`, height: "320px" }}>
+    <div className="chart-sync-shell">
+      <div className="chart-axis-pane chart-axis-pane-bars">
         <ResponsiveContainer height="100%" width="100%">
-          <BarChart data={points} margin={{ top: 16, right: 20, left: 8, bottom: 8 }}>
-            <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="key" tick={{ fill: "#5a6f88", fontSize: 11 }} tickFormatter={formatMonthTick} />
+          <BarChart data={points} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
             <YAxis tick={{ fill: "#5a6f88", fontSize: 11 }} tickFormatter={formatCompactCurrency} width={72} />
-            <Tooltip content={<UnbudgetedChartTooltip />} />
-            <Bar dataKey="unbudgeted" fill="#b6651d" name="Gasto no presupuestado" radius={[6, 6, 0, 0]} />
+            <Bar dataKey="unbudgeted" fill="transparent" isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+
+      <div className="chart-plot-scroll">
+        <div className="chart-scroll-content chart-scroll-content-bars chart-scroll-content-linear" style={{ width: `${width}px`, height: "320px" }}>
+          <ResponsiveContainer height="100%" width="100%">
+            <BarChart data={points} margin={{ top: 16, right: 20, left: 0, bottom: 8 }}>
+            <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" vertical={false} />
+            <XAxis dataKey="key" tick={{ fill: "#5a6f88", fontSize: 11 }} tickFormatter={formatMonthTick} />
+            <YAxis hide />
+            <Tooltip content={<UnbudgetedChartTooltip />} />
+            <Bar dataKey="unbudgeted" fill="url(#unbudgetedGradient)" name="Gasto no presupuestado" radius={[10, 10, 0, 0]} />
+            <defs>
+              <linearGradient id="unbudgetedGradient" x1="0" x2="0" y1="0" y2="1">
+                <stop offset="0%" stopColor="#d28a3f" />
+                <stop offset="100%" stopColor="#b6651d" />
+              </linearGradient>
+            </defs>
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
     </div>
   );
@@ -2014,22 +2030,6 @@ function UnbudgetedChartTooltip({ active, payload }) {
       <strong>{point.fullLabel}</strong>
       <p>Gasto no presupuestado: {money(point.unbudgeted, "USD")}</p>
     </div>
-  );
-}
-
-function renderSortHeader(label, key, sortState, setSortState) {
-  const isActive = sortState.key === key;
-  const indicator = isActive ? (sortState.direction === "asc" ? "^" : "v") : "-";
-
-  return (
-    <button
-      className={isActive ? "sort-button active" : "sort-button"}
-      onClick={() => setSortState((current) => nextSortState(current, key))}
-      type="button"
-    >
-      <span>{label}</span>
-      <span className="sort-indicator">{indicator}</span>
-    </button>
   );
 }
 
@@ -2374,22 +2374,6 @@ function validateWorkspace(workspace) {
   const settingsError = validateAnalysisSettings(workspace.analysisSettings ?? defaultAnalysisSettings());
   if (settingsError) return settingsError;
   return "";
-}
-
-function nextSortState(currentSort, key) {
-  if (currentSort.key === key) {
-    return { key, direction: currentSort.direction === "asc" ? "desc" : "asc" };
-  }
-
-  return { key, direction: defaultSortDirection(key) };
-}
-
-function defaultSortDirection(key) {
-  if (["movementDate", "startDate", "date", "endDate", "amount"].includes(key)) {
-    return "desc";
-  }
-
-  return "asc";
 }
 
 function sortCollection(items, sortState, valueGetter) {
