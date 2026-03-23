@@ -24,10 +24,10 @@ function getIncomeType(income) {
 
 function getSortIndicator(currentSort, key) {
   if (currentSort.key !== key) {
-    return "↕";
+    return "<->";
   }
 
-  return currentSort.direction === "asc" ? "▲" : "▼";
+  return currentSort.direction === "asc" ? "^" : "v";
 }
 
 function nextSortState(currentSort, key) {
@@ -67,6 +67,7 @@ export default function IncomesTable({
   incomes,
   onDeleteIncome,
   onEditIncome,
+  onManageSchedule,
   onSortChange,
 }) {
   const columns = useMemo(
@@ -132,6 +133,33 @@ export default function IncomesTable({
         },
       },
       {
+        id: "calendar",
+        header: () => "Calendario",
+        cell: ({ row }) => {
+          const overrides = Object.values(row.original.scheduleOverrides ?? {}).filter((value) => value?.adjustedDate);
+          const activeOverrides = overrides.filter((value) => value?.isActive !== false);
+
+          if (!overrides.length) {
+            return (
+              <Badge color="gray" radius="sm" size="sm" variant="light">
+                Sin ajustes
+              </Badge>
+            );
+          }
+
+          return (
+            <Group gap="xs">
+              <Badge color="blue" radius="sm" size="sm" variant="light">
+                {activeOverrides.length} activos
+              </Badge>
+              <Badge color="gray" radius="sm" size="sm" variant="light">
+                {overrides.length} total
+              </Badge>
+            </Group>
+          );
+        },
+      },
+      {
         id: "currency",
         header: () => <SortHeader currentSort={incomeSort} label="Moneda" onSortChange={onSortChange} sortKey="currency" />,
         cell: ({ row }) => row.original.currency || "USD",
@@ -150,6 +178,9 @@ export default function IncomesTable({
         header: () => "Acciones",
         cell: ({ row }) => (
           <Group gap="xs" wrap="wrap">
+            <Button onClick={() => onManageSchedule(row.original.id)} size="xs" variant="light">
+              Ajustar pagos
+            </Button>
             <Button onClick={() => onEditIncome(row.original.id)} size="xs" variant="default">
               Modificar
             </Button>
@@ -160,7 +191,7 @@ export default function IncomesTable({
         ),
       },
     ],
-    [formatDateLabel, formatMoneyLabel, formatTimestampLabel, incomeSort, onDeleteIncome, onEditIncome, onSortChange],
+    [formatDateLabel, formatMoneyLabel, formatTimestampLabel, incomeSort, onDeleteIncome, onEditIncome, onManageSchedule, onSortChange],
   );
 
   const table = useReactTable({

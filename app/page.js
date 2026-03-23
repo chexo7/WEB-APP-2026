@@ -23,6 +23,7 @@ import { get, onValue, push, ref, set } from "firebase/database";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ExpensesTable from "@/components/expenses-table";
 import IncomesTable from "@/components/incomes-table";
+import IncomeScheduleModal from "@/components/income-schedule-modal";
 import ReconciliationTable from "@/components/reconciliation-table";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 import { formatCompactMoneyAmount, formatMoneyAmount, sumMoneyValues } from "@/lib/money";
@@ -94,6 +95,9 @@ export default function HomePage() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState("summary");
   const [cashflowResolution, setCashflowResolution] = useState("weekly");
+  const [scheduleModalIncomeId, setScheduleModalIncomeId] = useState("");
+  const [scheduleOccurrenceDate, setScheduleOccurrenceDate] = useState("");
+  const [scheduleAdjustedDate, setScheduleAdjustedDate] = useState("");
   const [snapshotTree, setSnapshotTree] = useState({});
   const [selectedVersionKey, setSelectedVersionKey] = useState("");
   const [loadedVersionKey, setLoadedVersionKey] = useState("");
@@ -147,6 +151,9 @@ export default function HomePage() {
       setEditingIncomeId("");
       setEditingAdjustmentId("");
       setShowExpenseAdvanced(false);
+      setScheduleModalIncomeId("");
+      setScheduleOccurrenceDate("");
+      setScheduleAdjustedDate("");
       setIsInitializing(false);
       return;
     }
@@ -247,6 +254,9 @@ export default function HomePage() {
       setEditingIncomeId("");
       setEditingAdjustmentId("");
       setShowExpenseAdvanced(false);
+      setScheduleModalIncomeId("");
+      setScheduleOccurrenceDate("");
+      setScheduleAdjustedDate("");
       setSaveState("idle");
       setDataError("");
       setSuccessMessage("");
@@ -353,6 +363,19 @@ export default function HomePage() {
     return cashflowModelCache.monthly ?? buildCashflowResolutionModel(cashflowBaseModel, "monthly");
   }, [cashflowBaseModel, cashflowModelCache, cashflowResolution, weeklyCashflowModel]);
   const draftRecordCount = expenses.length + budgets.length + incomes.length + adjustments.length;
+  const scheduleModalIncome = useMemo(
+    () => incomes.find((income) => income.id === scheduleModalIncomeId) ?? incomeEntries.find((income) => income.id === scheduleModalIncomeId) ?? null,
+    [incomeEntries, incomes, scheduleModalIncomeId],
+  );
+  const scheduleOccurrenceOptions = useMemo(
+    () => buildIncomeSchedulePreviewItems({ income: scheduleModalIncome, analysisSettings, currentDateKey: todayKey }),
+    [analysisSettings, scheduleModalIncome, todayKey],
+  );
+  const scheduleOverrideRecords = useMemo(() => getIncomeScheduleOverrideRecords(scheduleModalIncome), [scheduleModalIncome]);
+  const selectedScheduleOccurrence =
+    scheduleOccurrenceOptions.find((item) => item.originalDate === scheduleOccurrenceDate) ??
+    scheduleOverrideRecords.find((item) => item.originalDate === scheduleOccurrenceDate) ??
+    null;
 
   useEffect(() => {
     if (displayedTab !== "cashflow") {
@@ -412,6 +435,34 @@ export default function HomePage() {
       }
     };
   }, [cashflowBaseModel, weeklyCashflowModel]);
+
+  useEffect(() => {
+    if (!scheduleModalIncome) {
+      if (scheduleModalIncomeId) {
+        setScheduleModalIncomeId("");
+      }
+      setScheduleOccurrenceDate("");
+      setScheduleAdjustedDate("");
+      return;
+    }
+
+    const hasSelectedOccurrence =
+      scheduleOccurrenceOptions.some((item) => item.originalDate === scheduleOccurrenceDate) ||
+      scheduleOverrideRecords.some((item) => item.originalDate === scheduleOccurrenceDate);
+
+    if (hasSelectedOccurrence) {
+      return;
+    }
+
+    const nextOccurrence =
+      scheduleOccurrenceOptions.find((item) => item.date >= todayKey || item.originalDate >= todayKey) ??
+      scheduleOccurrenceOptions[0] ??
+      scheduleOverrideRecords[0] ??
+      null;
+
+    setScheduleOccurrenceDate(nextOccurrence?.originalDate ?? "");
+    setScheduleAdjustedDate(nextOccurrence?.adjustedDate || nextOccurrence?.date || nextOccurrence?.originalDate || "");
+  }, [scheduleModalIncome, scheduleModalIncomeId, scheduleOccurrenceDate, scheduleOccurrenceOptions, scheduleOverrideRecords, todayKey]);
 
   useEffect(() => {
     if (!hasUnsavedChanges) {
@@ -558,6 +609,7 @@ export default function HomePage() {
           isRecurringIndefinite: Boolean(incomeForm.isRecurringIndefinite),
           isReimbursement: Boolean(incomeForm.isReimbursement),
           reimbursementCategory: incomeForm.isReimbursement ? incomeForm.reimbursementCategory : "",
+          scheduleOverrides: current.incomes?.[incomeId]?.scheduleOverrides ?? {},
           createdAt: current.incomes?.[incomeId]?.createdAt ?? Date.now(),
         },
       },
@@ -654,6 +706,112 @@ export default function HomePage() {
     });
     setEditingIncomeId(incomeId);
     setActiveTab("incomes");
+  };
+
+  const openIncomeScheduleModal = (incomeId) => {
+    if (!draft.incomes?.[incomeId]) {
+      return;
+    }
+
+    setScheduleModalIncomeId(incomeId);
+    setScheduleOccurrenceDate("");
+    setScheduleAdjustedDate("");
+    setActiveTab("incomes");
+  };
+
+  const closeIncomeScheduleModal = () => {
+    setScheduleModalIncomeId("");
+    setScheduleOccurrenceDate("");
+    setScheduleAdjustedDate("");
+  };
+
+  const selectIncomeScheduleOccurrence = (occurrenceDate) => {
+    const nextOccurrence =
+      scheduleOccurrenceOptions.find((item) => item.originalDate === occurrenceDate) ??
+      scheduleOverrideRecords.find((item) => item.originalDate === occurrenceDate) ??
+      null;
+
+    setScheduleOccurrenceDate(occurrenceDate);
+    setScheduleAdjustedDate(nextOccurrence?.adjustedDate || nextOccurrence?.date || nextOccurrence?.originalDate || "");
+  };
+
+  const saveIncomeScheduleOverride = () => {
+    if (!scheduleModalIncomeId || !scheduleOccurrenceDate) {
+      setDataError("Selecciona el ingreso y el pago que quieres ajustar.");
+      return;
+    }
+
+    if (!scheduleAdjustedDate) {
+      setDataError("Selecciona la nueva fecha para el pago.");
+      return;
+    }
+
+    if (scheduleAdjustedDate === scheduleOccurrenceDate) {
+      setDataError("La nueva fecha debe ser distinta a la fecha programada. Si quieres volver al calendario normal, desactiva el ajuste.");
+      return;
+    }
+
+    setDraft((current) => {
+      const currentIncome = current.incomes?.[scheduleModalIncomeId];
+      if (!currentIncome) {
+        return current;
+      }
+
+      return {
+        ...current,
+        incomes: {
+          ...current.incomes,
+          [scheduleModalIncomeId]: {
+            ...currentIncome,
+            scheduleOverrides: {
+              ...(currentIncome.scheduleOverrides ?? {}),
+              [scheduleOccurrenceDate]: {
+                adjustedDate: scheduleAdjustedDate,
+                isActive: true,
+                updatedAt: Date.now(),
+              },
+            },
+          },
+        },
+      };
+    });
+
+    setSaveState("idle");
+    setDataError("");
+    setSuccessMessage("Se guardo el ajuste puntual del calendario de pago en el borrador.");
+  };
+
+  const toggleIncomeScheduleOverride = (incomeId, occurrenceDate) => {
+    setDraft((current) => {
+      const currentIncome = current.incomes?.[incomeId];
+      const currentOverride = currentIncome?.scheduleOverrides?.[occurrenceDate];
+
+      if (!currentIncome || !currentOverride) {
+        return current;
+      }
+
+      return {
+        ...current,
+        incomes: {
+          ...current.incomes,
+          [incomeId]: {
+            ...currentIncome,
+            scheduleOverrides: {
+              ...(currentIncome.scheduleOverrides ?? {}),
+              [occurrenceDate]: {
+                ...currentOverride,
+                isActive: !currentOverride.isActive,
+                updatedAt: Date.now(),
+              },
+            },
+          },
+        },
+      };
+    });
+
+    setSaveState("idle");
+    setDataError("");
+    setSuccessMessage("Se actualizo el estado del ajuste puntual en el borrador.");
   };
 
   const editAdjustment = (adjustmentId) => {
@@ -773,6 +931,9 @@ export default function HomePage() {
     setEditingIncomeId("");
     setEditingAdjustmentId("");
     setShowExpenseAdvanced(false);
+    setScheduleModalIncomeId("");
+    setScheduleOccurrenceDate("");
+    setScheduleAdjustedDate("");
     setSaveState("idle");
     setDataError("");
     setSuccessMessage("");
@@ -1411,6 +1572,9 @@ export default function HomePage() {
             <section className="workspace-stack incomes-stack">
               <div className="income-tab-header">
                 <h2>Gestion de Ingresos</h2>
+                <p className="section-copy">
+                  Si un pago puntual cambia por feriado o calendario especial, ajustalo desde la lista sin tocar la regla base del ingreso.
+                </p>
               </div>
 
               <form className="panel-card panel-frame entry-form income-entry-form" onSubmit={saveIncomeToDraft}>
@@ -1547,12 +1711,30 @@ export default function HomePage() {
                     incomes={incomes}
                     onDeleteIncome={deleteIncome}
                     onEditIncome={editIncome}
+                    onManageSchedule={openIncomeScheduleModal}
                     onSortChange={setIncomeSort}
                   />
                 ) : (
                   <p className="muted-text">Todavia no hay ingresos en la lista.</p>
                 )}
               </section>
+
+              <IncomeScheduleModal
+                adjustedDate={scheduleAdjustedDate}
+                formatDateLabel={formatDateLabel}
+                income={scheduleModalIncome}
+                occurrenceOptions={scheduleOccurrenceOptions}
+                onAdjustedDateChange={setScheduleAdjustedDate}
+                onClose={closeIncomeScheduleModal}
+                onOccurrenceChange={selectIncomeScheduleOccurrence}
+                onSave={saveIncomeScheduleOverride}
+                onSelectOverride={selectIncomeScheduleOccurrence}
+                onToggleOverride={(occurrenceDate) => toggleIncomeScheduleOverride(scheduleModalIncomeId, occurrenceDate)}
+                opened={Boolean(scheduleModalIncomeId)}
+                overrideRecords={scheduleOverrideRecords}
+                selectedOccurrence={selectedScheduleOccurrence}
+                selectedOccurrenceDate={scheduleOccurrenceDate}
+              />
             </section>
           ) : null}
 
@@ -2124,6 +2306,30 @@ function defaultAnalysisSettings() {
   };
 }
 
+function sanitizeIncomeScheduleOverrides(overrides) {
+  return Object.fromEntries(
+    Object.entries(overrides ?? {})
+      .map(([originalDate, value]) => {
+        const normalizedOriginalDate = String(originalDate ?? "").trim();
+        const normalizedAdjustedDate = String(value?.adjustedDate ?? "").trim();
+
+        if (!isValidDate(parseDateKey(normalizedOriginalDate)) || !isValidDate(parseDateKey(normalizedAdjustedDate))) {
+          return null;
+        }
+
+        return [
+          normalizedOriginalDate,
+          {
+            adjustedDate: normalizedAdjustedDate,
+            isActive: value?.isActive !== false,
+            updatedAt: Number(value?.updatedAt) || 0,
+          },
+        ];
+      })
+      .filter(Boolean),
+  );
+}
+
 function sortLabelsAlphabetically(items) {
   return [...items].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
@@ -2212,6 +2418,7 @@ function sanitizeWorkspace(workspace) {
           isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
           isReimbursement: Boolean(value?.isReimbursement),
           reimbursementCategory: expenseCategories.includes(String(value?.reimbursementCategory ?? "")) ? String(value?.reimbursementCategory) : "",
+          scheduleOverrides: sanitizeIncomeScheduleOverrides(value?.scheduleOverrides),
           createdAt: Number(value?.createdAt) || Date.now(),
         },
       ]),
@@ -2462,6 +2669,75 @@ function getAdjustmentSortValue(adjustment, key) {
   }
 }
 
+function buildIncomeOccurrenceEntries({ income, displayEnd }) {
+  if (!income) {
+    return [];
+  }
+
+  const scheduleOverrides = sanitizeIncomeScheduleOverrides(income.scheduleOverrides);
+  const generationEnd = maxDateKey(displayEnd, ...Object.keys(scheduleOverrides));
+  const occurrenceDates = buildRecurringDates({
+    startDate: income.startDate,
+    frequency: income.frequency,
+    endDate: income.endDate,
+    isRecurringIndefinite: income.isRecurringIndefinite,
+    displayEnd: generationEnd,
+  });
+
+  return occurrenceDates
+    .map((originalDate) => {
+      const override = scheduleOverrides[originalDate];
+      const isOverrideActive = Boolean(override?.isActive);
+      const adjustedDate = isOverrideActive ? override.adjustedDate : originalDate;
+
+      return {
+        adjustedDate: override?.adjustedDate ?? "",
+        date: adjustedDate,
+        isAdjusted: isOverrideActive && adjustedDate !== originalDate,
+        isOverrideActive,
+        originalDate,
+      };
+    })
+    .sort((left, right) => {
+      const dateResult = compareSortValues(left.date, right.date, "asc");
+      if (dateResult !== 0) return dateResult;
+      return compareSortValues(left.originalDate, right.originalDate, "asc");
+    });
+}
+
+function buildIncomeSchedulePreviewItems({ income, analysisSettings, currentDateKey }) {
+  if (!income) {
+    return [];
+  }
+
+  const previewEnd = maxDateKey(analysisSettings?.endDate, localDate(addCalendarMonths(new Date(), 18)));
+  const occurrences = buildIncomeOccurrenceEntries({
+    income,
+    displayEnd: previewEnd,
+  });
+
+  if (occurrences.length <= 48) {
+    return occurrences;
+  }
+
+  const pivotIndex = occurrences.findIndex((item) => item.date >= currentDateKey || item.originalDate >= currentDateKey);
+  const startIndex = Math.max(0, (pivotIndex === -1 ? occurrences.length - 24 : pivotIndex) - 6);
+
+  return occurrences.slice(startIndex, startIndex + 48);
+}
+
+function getIncomeScheduleOverrideRecords(income) {
+  return Object.entries(sanitizeIncomeScheduleOverrides(income?.scheduleOverrides))
+    .map(([originalDate, value]) => ({
+      adjustedDate: value.adjustedDate,
+      isActive: Boolean(value.isActive),
+      isAdjusted: value.adjustedDate !== originalDate && Boolean(value.isActive),
+      originalDate,
+      updatedAt: value.updatedAt,
+    }))
+    .sort((left, right) => compareSortValues(left.originalDate, right.originalDate, "asc"));
+}
+
 function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDateKey, analysisSettings }) {
   const settings = sanitizeAnalysisSettings(analysisSettings);
   const chartSettings = getChartMonthSettings(settings);
@@ -2541,17 +2817,15 @@ function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDa
   for (const income of incomes) {
     if (!income.isReimbursement) continue;
 
-    const occurrenceDates = buildRecurringDates({
-      startDate: income.startDate,
-      frequency: income.frequency,
-      endDate: income.endDate,
-      isRecurringIndefinite: income.isRecurringIndefinite,
+    const occurrenceDates = buildIncomeOccurrenceEntries({
+      income,
       displayEnd: budgetDisplayEnd,
     });
     const amount = -(Number(income.amount) || 0);
     const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
 
-    for (const date of occurrenceDates) {
+    for (const occurrence of occurrenceDates) {
+      const date = occurrence.date;
       const monthKey = String(date).slice(0, 7);
       const matchedPeriod = findBudgetPeriodForDate(periodsByCategory[category] ?? [], date);
 
@@ -2929,23 +3203,22 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
   }
 
   for (const income of incomes) {
-    const occurrenceDates = buildRecurringDates({
-      startDate: income.startDate,
-      frequency: income.frequency,
-      endDate: income.endDate,
-      isRecurringIndefinite: income.isRecurringIndefinite,
+    const occurrenceDates = buildIncomeOccurrenceEntries({
+      income,
       displayEnd,
     });
 
-    for (const date of occurrenceDates) {
+    for (const occurrence of occurrenceDates) {
+      const date = occurrence.date;
       const amount = Number(income.amount) || 0;
+      const scheduleLabel = occurrence.isAdjusted ? ` [ajuste ${occurrence.originalDate} -> ${occurrence.date}]` : "";
 
       if (income.isReimbursement) {
         const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
         const line = formatCashflowLine({
           amount,
           currency: income.currency,
-          label: `Reembolso ${income.name || "sin nombre"}`,
+          label: `Reembolso ${income.name || "sin nombre"}${scheduleLabel}`,
           date,
         });
         registerCategoryImpact(date, category, amount, line);
@@ -2962,7 +3235,7 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
         formatCashflowLine({
           amount,
           currency: income.currency,
-          label: income.name || "Ingreso",
+          label: `${income.name || "Ingreso"}${scheduleLabel}`,
           date,
         }),
       );
