@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useState } from "react";
-import { Alert, Badge, Button, Group, Modal, Paper, ScrollArea, Stepper, Table, Text } from "@mantine/core";
+import { Alert, Badge, Button, Group, Modal, Paper, ScrollArea, Table, Text } from "@mantine/core";
 
 function buildRangeLabel(summary, formatDateLabel) {
   if (!summary?.fromDate || !summary?.toDate) {

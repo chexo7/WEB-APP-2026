@@ -239,9 +239,9 @@ button {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.7fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.64fr) minmax(420px, 0.72fr);
   gap: 1.2rem;
-  align-items: stretch;
+  align-items: center;
   padding: 1.6rem;
 }
 
@@ -297,10 +297,12 @@ button {
 .topbar-history {
   display: grid;
   align-content: center;
+  align-self: center;
 }
 
-.save-bar-shell {
-  margin-top: 1rem;
+.save-feedback-shell {
+  margin-top: 0.55rem;
+  padding: 0 0.95rem 0.8rem;
 }
 
 .save-bar {
@@ -332,7 +334,8 @@ button {
 
 .topbar-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(170px, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-self: center;
   gap: 0.7rem;
 }
 
@@ -347,32 +350,70 @@ button {
   text-transform: none;
 }
 
+.history-control select {
+  min-height: 58px;
+}
+
 .status-chip,
 .user-chip {
-  min-height: 100%;
-  display: grid;
-  place-items: center;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--line-strong);
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.86);
-  font-size: 0.78rem;
+  min-height: 58px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.78rem 0.95rem;
+  border: 1px solid rgba(39, 63, 92, 0.22);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.96);
+  font-size: 0.76rem;
   font-weight: 700;
   letter-spacing: 0.05em;
   text-transform: uppercase;
-  box-shadow: var(--shadow-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
   text-align: center;
 }
 
 .status-chip.pending {
-  color: var(--accent-strong);
-  background: rgba(205, 222, 242, 0.92);
+  color: #f7fbff;
+  border-color: var(--accent-strong);
+  background: linear-gradient(180deg, #2d6ca8 0%, var(--accent-strong) 100%);
 }
 
-.topbar-actions .secondary-button {
-  min-height: 100%;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.88);
+.action-chip {
+  min-height: 58px;
+  border-radius: var(--radius-control);
+}
+
+.topbar-actions .secondary-button,
+.topbar-actions .status-chip {
+  width: 100%;
+  min-height: 58px;
+  padding: 0.78rem 0.95rem;
+  border: 1px solid rgba(39, 63, 92, 0.22);
+  border-radius: var(--radius-control);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.topbar-actions .status-chip.pending:not(:disabled) {
+  color: #f7fbff;
+  border-color: var(--accent-strong);
+  background: linear-gradient(180deg, #2d6ca8 0%, var(--accent-strong) 100%);
+}
+
+.topbar-actions .status-chip:disabled {
+  cursor: default;
+  opacity: 1;
+  color: #70839b;
+  background: rgba(247, 250, 253, 0.96);
+}
+
+.user-chip {
+  text-transform: none;
+}
+
+.topbar-actions .secondary-button:hover,
+.topbar-actions .status-chip:not(:disabled):hover {
+  border-color: var(--accent);
 }
 
 .summary-grid {
@@ -500,34 +541,22 @@ button {
 }
 
 .mantine-tabs-bar {
-  display: flex;
-  flex-wrap: nowrap;
-  align-items: flex-end;
-  gap: 0;
-  padding: 0.85rem 0.9rem 0;
-  overflow-x: auto;
-  scrollbar-gutter: stable both-edges;
-  scrollbar-width: thin;
-}
-
-.mantine-tabs-bar::-webkit-scrollbar {
-  height: 8px;
-}
-
-.mantine-tabs-bar::-webkit-scrollbar-thumb {
-  background: rgba(36, 88, 143, 0.24);
+  display: grid;
+  grid-template-columns: repeat(8, minmax(0, 1fr));
+  gap: 0.35rem;
+  padding: 0.75rem 0.9rem 0;
 }
 
 .mantine-tab-button {
-  min-width: 118px;
-  min-height: 44px;
-  margin-right: -1px;
+  width: 100%;
+  min-width: 0;
+  min-height: 54px;
   border: 1px solid var(--line-strong);
   border-bottom: 0;
   border-radius: 16px 16px 0 0;
   background: rgba(255, 255, 255, 0.72);
   color: var(--text);
-  font-size: 0.74rem;
+  font-size: 0.78rem;
   font-weight: 700;
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1810,6 +1839,10 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
+  .mantine-tabs-bar {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
   .budget-inline-summary,
   .budget-card-metrics {
     grid-template-columns: 1fr;
@@ -1846,6 +1879,10 @@ button {
   .status-chip,
   .user-chip {
     width: 100%;
+  }
+
+  .mantine-tabs-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .summary-grid,

@@ -1226,13 +1226,18 @@ export default function HomePage() {
         </div>
 
         <div className="topbar-actions">
-          <span className={hasUnsavedChanges ? "status-chip pending" : "status-chip"}>
-            {hasUnsavedChanges ? "Cambios sin guardar" : "Sin cambios pendientes"}
-          </span>
+          <button
+            className={hasUnsavedChanges ? "status-chip pending action-chip" : "status-chip action-chip"}
+            disabled={!hasUnsavedChanges || saveState === "saving"}
+            onClick={handleGlobalSave}
+            type="button"
+          >
+            {saveState === "saving" ? "Guardando entrada..." : hasUnsavedChanges ? "Guardar nueva entrada" : "Sin cambios pendientes"}
+          </button>
 
           <span className="user-chip">{user?.email}</span>
 
-          <button className="secondary-button" onClick={handleLogout} type="button">
+          <button className="secondary-button action-chip" onClick={handleLogout} type="button">
             Cerrar sesion
           </button>
         </div>
@@ -1259,8 +1264,8 @@ export default function HomePage() {
           </MantineTabs.List>
         </MantineTabs>
 
-        <section className="save-bar-shell">
-          <Paper className="save-bar" p="md" radius="lg" shadow="sm" withBorder>
+        <section className="save-feedback-shell">
+          {false ? <Paper className="save-bar" p="md" radius="lg" shadow="sm" withBorder>
             <div className="save-bar-copy">
               <p className="eyebrow">Guardado General</p>
               <h2>Borrador activo</h2>
@@ -1286,7 +1291,7 @@ export default function HomePage() {
                 Guardar cambios
               </MantineButton>
             </Group>
-          </Paper>
+          </Paper> : null}
           {successMessage ? <p className="success-text">{successMessage}</p> : null}
           {dataError ? <p className="error-text">{dataError}</p> : null}
         </section>
