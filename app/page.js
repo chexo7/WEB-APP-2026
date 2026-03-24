@@ -43,12 +43,12 @@ const defaultCredentials = { email: "ssfamiliausa@gmail.com", password: "" };
 const tabs = [
   { id: "summary", label: "Resumen" },
   { id: "expenses", label: "Gastos" },
-  { id: "budgets", label: "Presupuesto" },
   { id: "incomes", label: "Ingresos" },
   { id: "reconciliation", label: "Cuadre" },
-  { id: "settings", label: "Ajustes" },
+  { id: "budgets", label: "Presupuesto" },
   { id: "cashflow", label: "Tabla" },
   { id: "charts", label: "Graficos" },
+  { id: "settings", label: "Ajustes" },
 ];
 const expenseFrequencies = ["Unico", "Mensual", "Semanal", "Bi-semanal"];
 const expenseCurrencies = [

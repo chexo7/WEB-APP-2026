@@ -541,18 +541,23 @@ button {
 }
 
 .mantine-tabs-bar {
-  display: grid;
-  grid-template-columns: repeat(8, minmax(0, 1fr));
-  align-items: end;
-  gap: 0;
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 0.35rem;
   padding: 0.75rem 0.9rem 0;
+  overflow: visible;
 }
 
 .mantine-tab-button {
-  width: 100%;
-  min-width: 0;
+  flex: 0 0 auto;
+  width: auto;
+  min-width: fit-content;
   min-height: 54px;
-  margin-right: -1px;
+  padding: 0.75rem 0.9rem;
+  margin-right: 0;
   border: 1px solid transparent;
   border-bottom: 0;
   border-radius: 18px 18px 0 0;
@@ -1841,10 +1846,6 @@ button {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .mantine-tabs-bar {
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-  }
-
   .budget-inline-summary,
   .budget-card-metrics {
     grid-template-columns: 1fr;
@@ -1884,7 +1885,15 @@ button {
   }
 
   .mantine-tabs-bar {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.2rem;
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+  }
+
+  .mantine-tab-button {
+    min-height: 50px;
+    padding: 0.68rem 0.55rem;
+    font-size: 0.68rem;
   }
 
   .summary-grid,
