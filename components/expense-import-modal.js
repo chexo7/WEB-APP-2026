@@ -99,33 +99,8 @@ export default function ExpenseImportModal({
   const canImport = Boolean(rows.length) && (stats.categorizedImportCount > 0 || editableExistingCount > 0);
 
   return (
-    <Modal centered onClose={onClose} opened={opened} size="min(1480px, calc(100vw - 24px))" title="Importar gastos desde JSON">
+    <Modal centered onClose={onClose} opened={opened} size="min(1520px, calc(100vw - 24px))" title="Importar gastos desde JSON">
       <div className="expense-import-modal">
-        <Stepper active={rows.length ? 1 : 0} allowNextStepsSelect={false} iconPosition="right">
-          <Stepper.Step description="Carga JSON Schwab" label="Archivo" />
-          <Stepper.Step description="Categorias y revision" label="Wizard" />
-        </Stepper>
-
-        <Paper className="expense-import-hero" p="md" radius="lg" withBorder>
-          <div>
-            <Text fw={700} size="lg">
-              Gasto masivo desde Charles Schwab
-            </Text>
-            <Text c="dimmed" size="sm">
-              Solo se toman PostedTransactions con retiro confirmado. Los duplicados se excluyen automaticamente.
-            </Text>
-          </div>
-
-          <Group gap="xs">
-            <Badge color="blue" radius="sm" variant="light">
-              {rows.length ? `${rows.length} movimientos leidos` : "JSON bancario"}
-            </Badge>
-            <Badge color="gray" radius="sm" variant="light">
-              {buildRangeLabel(summary, formatDateLabel)}
-            </Badge>
-          </Group>
-        </Paper>
-
         <Paper
           className={isDragActive ? "expense-import-dropzone active" : "expense-import-dropzone"}
           onClick={handleBrowseClick}
@@ -204,6 +179,9 @@ export default function ExpenseImportModal({
               <Badge color={stats.suggestedCount ? "cyan" : "gray"} radius="sm" variant="light">
                 {stats.suggestedCount} con sugerencia
               </Badge>
+              <Badge color="gray" radius="sm" variant="light">
+                {buildRangeLabel(summary, formatDateLabel)}
+              </Badge>
             </Group>
           </Paper>
         ) : null}
@@ -217,7 +195,6 @@ export default function ExpenseImportModal({
                   <Table.Th>Descripcion</Table.Th>
                   <Table.Th>Monto</Table.Th>
                   <Table.Th>Categoria</Table.Th>
-                  <Table.Th>Tipo</Table.Th>
                   <Table.Th>Duplicado</Table.Th>
                 </Table.Tr>
               </Table.Thead>
@@ -265,7 +242,6 @@ export default function ExpenseImportModal({
                         ) : null}
                       </div>
                     </Table.Td>
-                    <Table.Td>{row.type}</Table.Td>
                     <Table.Td>
                       <Badge color={row.isDuplicate ? "violet" : "teal"} radius="sm" variant="light">
                         {row.isDuplicate ? "Ya existe" : "Nuevo"}

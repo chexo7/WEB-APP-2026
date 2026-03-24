@@ -1204,16 +1204,15 @@ export default function HomePage() {
       <section className="topbar topbar-hero">
         <div className="topbar-copy">
           <p className="eyebrow">Web App Flujo De Caja</p>
-          <h1>Sketch funcional</h1>
+          <h1>Cash Flow Pulento</h1>
           <p className="muted-text">Trabajas sobre un borrador local y solo guardas una nueva entrada cuando lo confirmas.</p>
           <div className="topbar-meta">
             <span className="hero-chip">Version {selectedVersion ? selectedVersion.snapshotDate : "sin datos"}</span>
             <span className="hero-chip hero-chip-strong">{draftRecordCount} registros en borrador</span>
-            <span className="hero-chip">Pestana activa: {tabs.find((tab) => tab.id === activeTab)?.label ?? "Resumen"}</span>
           </div>
         </div>
 
-        <div className="topbar-actions">
+        <div className="topbar-history">
           <label className="history-control">
             Ultimas 5 entradas
             <select onChange={(event) => setSelectedVersionKey(event.target.value)} value={selectedVersionKey}>
@@ -1224,7 +1223,9 @@ export default function HomePage() {
               ))}
             </select>
           </label>
+        </div>
 
+        <div className="topbar-actions">
           <span className={hasUnsavedChanges ? "status-chip pending" : "status-chip"}>
             {hasUnsavedChanges ? "Cambios sin guardar" : "Sin cambios pendientes"}
           </span>
