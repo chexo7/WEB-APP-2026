@@ -1192,11 +1192,16 @@ export default function HomePage() {
 
   return (
     <main className="app-shell">
-      <section className="topbar">
-        <div>
+      <section className="topbar topbar-hero">
+        <div className="topbar-copy">
           <p className="eyebrow">Web App Flujo De Caja</p>
           <h1>Sketch funcional</h1>
           <p className="muted-text">Trabajas sobre un borrador local y solo guardas una nueva entrada cuando lo confirmas.</p>
+          <div className="topbar-meta">
+            <span className="hero-chip">Version {selectedVersion ? selectedVersion.snapshotDate : "sin datos"}</span>
+            <span className="hero-chip hero-chip-strong">{draftRecordCount} registros en borrador</span>
+            <span className="hero-chip">Pestana activa: {tabs.find((tab) => tab.id === activeTab)?.label ?? "Resumen"}</span>
+          </div>
         </div>
 
         <div className="topbar-actions">
@@ -1252,6 +1257,11 @@ export default function HomePage() {
               <Text c="dimmed" size="sm">
                 Todas las pestañas editan el mismo borrador. Guarda una sola vez cuando quieras confirmar los cambios.
               </Text>
+              <div className="save-bar-meta">
+                <span className="save-meta-chip">Version cargada: {selectedVersion ? labelVersion(selectedVersion) : "Sin historial"}</span>
+                <span className="save-meta-chip">Bloques: {budgets.length}</span>
+                <span className="save-meta-chip">Estado: {hasUnsavedChanges ? "Pendiente" : "Sin cambios"}</span>
+              </div>
             </div>
 
             <Group className="save-bar-actions" gap="sm">
@@ -1274,6 +1284,20 @@ export default function HomePage() {
         <div className="tab-panel">
           {displayedTab === "summary" ? (
             <section className="summary-panel">
+              <section className="panel-card panel-frame summary-hero-panel">
+                <div className="panel-heading summary-hero-heading">
+                  <div>
+                    <p className="eyebrow">Vista General</p>
+                    <h2>Panorama actual del flujo</h2>
+                    <p>Empieza aqui para revisar el estado del borrador, el balance y el desvio frente a presupuesto antes de entrar al detalle operativo.</p>
+                  </div>
+                  <div className="summary-hero-pills">
+                    <span className="summary-pill">Balance: {money(balance, "USD")}</span>
+                    <span className="summary-pill">Pendiente: {money(budgetComparisonModel.summary.differenceCurrent, "USD")}</span>
+                  </div>
+                </div>
+              </section>
+
               <div className="summary-grid">
                 <article className="summary-card summary-card-positive">
                   <span>Ingresos reales</span>
@@ -1295,15 +1319,15 @@ export default function HomePage() {
                   <span>Saldo actual</span>
                   <strong>{money(balance, "USD")}</strong>
                 </article>
-                <article className="summary-card">
+                <article className="summary-card summary-card-emphasis">
                   <span>Presupuestado actual</span>
                   <strong>{money(budgetComparisonModel.summary.budgetedCurrent, "USD")}</strong>
                 </article>
-                <article className="summary-card">
+                <article className="summary-card summary-card-emphasis">
                   <span>Real sobre presupuestos</span>
                   <strong>{money(budgetComparisonModel.summary.actualCurrent, "USD")}</strong>
                 </article>
-                <article className="summary-card">
+                <article className="summary-card summary-card-emphasis">
                   <span>Diferencia actual</span>
                   <strong>{money(budgetComparisonModel.summary.differenceCurrent, "USD")}</strong>
                 </article>
@@ -1359,6 +1383,7 @@ export default function HomePage() {
 
               <form className="panel-card panel-frame entry-form expense-entry-form" onSubmit={saveExpenseToDraft}>
                 <div className="expense-form-title">
+                  <p className="form-kicker">Registro manual</p>
                   <h3>{editingExpenseId ? "Modificar Gasto" : "Registrar Nuevo Gasto"}</h3>
                 </div>
 
@@ -1533,6 +1558,7 @@ export default function HomePage() {
 
               <form className="panel-card panel-frame entry-form budget-entry-form" onSubmit={saveBudgetToDraft}>
                 <div className="budget-form-title">
+                  <p className="form-kicker">Planeacion</p>
                   <h3>{editingBudgetId ? "Modificar Presupuesto" : "Crear Bloque de Presupuesto"}</h3>
                 </div>
 
@@ -1766,6 +1792,7 @@ export default function HomePage() {
 
               <form className="panel-card panel-frame entry-form income-entry-form" onSubmit={saveIncomeToDraft}>
                 <div className="income-form-title">
+                  <p className="form-kicker">Entrada base</p>
                   <h3>{editingIncomeId ? "Modificar Ingreso" : "Registrar Nuevo Ingreso"}</h3>
                 </div>
 
@@ -1938,6 +1965,7 @@ export default function HomePage() {
 
               <form className="panel-card panel-frame entry-form reconciliation-entry-form" onSubmit={saveAdjustmentToDraft}>
                 <div className="reconciliation-form-title">
+                  <p className="form-kicker">Correccion manual</p>
                   <h3>{editingAdjustmentId ? "Modificar Ajuste de Cuadre" : "Registrar Ajuste de Cuadre"}</h3>
                 </div>
 
@@ -2014,6 +2042,7 @@ export default function HomePage() {
 
               <form className="panel-card panel-frame entry-form settings-entry-form" onSubmit={saveSettingsToDraft}>
                 <div className="settings-form-title">
+                  <p className="form-kicker">Ventana de analisis</p>
                   <h3>Rango del flujo de caja y graficos</h3>
                 </div>
 

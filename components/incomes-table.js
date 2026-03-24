@@ -177,7 +177,7 @@ export default function IncomesTable({
         id: "actions",
         header: () => "Acciones",
         cell: ({ row }) => (
-          <Group gap="xs" wrap="wrap">
+          <Group className="table-actions" gap="xs" wrap="wrap">
             <Button onClick={() => onManageSchedule(row.original.id)} size="xs" variant="light">
               Ajustar pagos
             </Button>

@@ -123,7 +123,7 @@ export default function ExpensesTable({
         id: "actions",
         header: () => "Acciones",
         cell: ({ row }) => (
-          <Group gap="xs" wrap="wrap">
+          <Group className="table-actions" gap="xs" wrap="wrap">
             <Button onClick={() => onEditExpense(row.original.id)} size="xs" variant="default">
               Modificar
             </Button>
