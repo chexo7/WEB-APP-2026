@@ -818,10 +818,12 @@ export default function HomePage() {
   };
 
   const importExpenseRowsToDraft = () => {
-    const rowsToImport = expenseImportRows.filter((row) => !row.isDuplicate);
+    const rowsToImport = expenseImportRows.filter(
+      (row) => !row.isDuplicate && expenseCategories.includes(String(row.category ?? "")),
+    );
 
     if (!rowsToImport.length) {
-      setExpenseImportError("No hay movimientos nuevos por importar. El archivo ya esta reflejado en la lista.");
+      setExpenseImportError("No hay movimientos categorizados listos para importar. Asigna categoria a las filas que quieras agregar.");
       return;
     }
 
@@ -837,7 +839,7 @@ export default function HomePage() {
           name: row.name,
           amount: row.amount,
           currency: row.currency,
-          category: expenseCategories.includes(String(row.category ?? "")) ? row.category : "Otros",
+          category: row.category,
           frequency: "Unico",
           movementDate: row.movementDate,
           endDate: "",

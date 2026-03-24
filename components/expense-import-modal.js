@@ -31,11 +31,13 @@ export default function ExpenseImportModal({
   const stats = useMemo(() => {
     const duplicateCount = rows.filter((row) => row.isDuplicate).length;
     const importableCount = rows.length - duplicateCount;
+    const categorizedImportCount = rows.filter((row) => !row.isDuplicate && row.category).length;
     const pendingCategoryCount = rows.filter((row) => !row.isDuplicate && !row.category).length;
     const suggestedCount = rows.filter((row) => !row.isDuplicate && row.suggestedCategory).length;
     const normalizedCount = rows.filter((row) => row.wasSanitized).length;
 
     return {
+      categorizedImportCount,
       duplicateCount,
       importableCount,
       normalizedCount,
@@ -91,7 +93,7 @@ export default function ExpenseImportModal({
     await onFileSelect(file);
   };
 
-  const canImport = Boolean(rows.length) && stats.importableCount > 0;
+  const canImport = Boolean(rows.length) && stats.categorizedImportCount > 0;
 
   return (
     <Modal centered onClose={onClose} opened={opened} size="xl" title="Importar gastos desde JSON">
@@ -176,13 +178,13 @@ export default function ExpenseImportModal({
                 Resumen del wizard
               </Text>
               <Text c="dimmed" size="sm">
-                Puedes importar por tandas. Lo que no categorices ahora entra como Otros y luego lo ajustas en la lista.
+                Puedes importar por tandas. Solo se agregan las filas con categoria asignada y el resto queda pendiente para otra pasada.
               </Text>
             </div>
 
             <Group gap="xs">
               <Badge color="teal" radius="sm" variant="light">
-                {stats.importableCount} listos para importar
+                {stats.categorizedImportCount} listos para importar
               </Badge>
               <Badge color={stats.pendingCategoryCount ? "orange" : "gray"} radius="sm" variant="light">
                 {stats.pendingCategoryCount} sin categoria
@@ -271,7 +273,7 @@ export default function ExpenseImportModal({
 
         <Group justify="space-between">
           <Text c="dimmed" size="sm">
-            Si un movimiento ya existe, se mantiene fuera de la importacion. Las filas sin categoria se guardan como Otros para que puedas seguir en otra tanda.
+            Si un movimiento ya existe, se mantiene fuera de la importacion. Las filas sin categoria no se agregan para que puedas seguir en otra tanda.
           </Text>
           <Group gap="sm">
             <Button onClick={onClose} variant="default">
