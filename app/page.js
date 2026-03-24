@@ -21,13 +21,16 @@ import { es } from "date-fns/locale";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import ExpenseImportModal from "@/components/expense-import-modal";
 import ExpensesTable from "@/components/expenses-table";
 import IncomesTable from "@/components/incomes-table";
 import IncomeScheduleModal from "@/components/income-schedule-modal";
 import ReconciliationTable from "@/components/reconciliation-table";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
+import { getFirebaseTextWarning, sanitizeFirebaseCompatibleText } from "@/lib/firebase-safe";
 import { formatCompactMoneyAmount, formatMoneyAmount, sumMoneyValues } from "@/lib/money";
 import { buildRecurringDatesWithRRule } from "@/lib/recurrence";
+import { buildExpenseImportMatchKey, parseSchwabPostedExpenseTransactions } from "@/lib/schwab-expense-import";
 import {
   validateAdjustmentRecord,
   validateAnalysisSettingsRecord,
@@ -98,6 +101,11 @@ export default function HomePage() {
   const [scheduleModalIncomeId, setScheduleModalIncomeId] = useState("");
   const [scheduleOccurrenceDate, setScheduleOccurrenceDate] = useState("");
   const [scheduleAdjustedDate, setScheduleAdjustedDate] = useState("");
+  const [expenseImportOpened, setExpenseImportOpened] = useState(false);
+  const [expenseImportFileName, setExpenseImportFileName] = useState("");
+  const [expenseImportSummary, setExpenseImportSummary] = useState(null);
+  const [expenseImportRows, setExpenseImportRows] = useState([]);
+  const [expenseImportError, setExpenseImportError] = useState("");
   const [snapshotTree, setSnapshotTree] = useState({});
   const [selectedVersionKey, setSelectedVersionKey] = useState("");
   const [loadedVersionKey, setLoadedVersionKey] = useState("");
@@ -123,6 +131,9 @@ export default function HomePage() {
   const [cashflowModelCache, setCashflowModelCache] = useState({ daily: null, weekly: null, monthly: null });
   const cashflowScrollRef = useRef(null);
   const currentDayColumnRef = useRef(null);
+  const expenseNameWarning = useMemo(() => getFirebaseTextWarning(expenseForm.name), [expenseForm.name]);
+  const budgetNameWarning = useMemo(() => getFirebaseTextWarning(budgetForm.name), [budgetForm.name]);
+  const incomeNameWarning = useMemo(() => getFirebaseTextWarning(incomeForm.name), [incomeForm.name]);
   const displayedTab = useDeferredValue(activeTab);
   const isTabTransitionPending = displayedTab !== activeTab;
 
@@ -154,6 +165,11 @@ export default function HomePage() {
       setScheduleModalIncomeId("");
       setScheduleOccurrenceDate("");
       setScheduleAdjustedDate("");
+      setExpenseImportOpened(false);
+      setExpenseImportFileName("");
+      setExpenseImportSummary(null);
+      setExpenseImportRows([]);
+      setExpenseImportError("");
       setIsInitializing(false);
       return;
     }
@@ -257,6 +273,11 @@ export default function HomePage() {
       setScheduleModalIncomeId("");
       setScheduleOccurrenceDate("");
       setScheduleAdjustedDate("");
+      setExpenseImportOpened(false);
+      setExpenseImportFileName("");
+      setExpenseImportSummary(null);
+      setExpenseImportRows([]);
+      setExpenseImportError("");
       setSaveState("idle");
       setDataError("");
       setSuccessMessage("");
@@ -267,6 +288,12 @@ export default function HomePage() {
     recentVersions.find((version) => version.key === selectedVersionKey) ?? recentVersions[0] ?? null;
 
   const expenseEntries = useMemo(() => Object.entries(draft.expenses).map(([id, value]) => ({ id, ...value })), [draft.expenses]);
+  const expenseImportFingerprints = useMemo(
+    () => new Set(expenseEntries.map((expense) => String(expense.importSource?.fingerprint ?? "").trim()).filter(Boolean)),
+    [expenseEntries],
+  );
+  const expenseImportMatchCounts = useMemo(() => buildExpenseImportMatchCountMap(expenseEntries), [expenseEntries]);
+  const expenseCategorySuggestions = useMemo(() => buildExpenseCategorySuggestionMap(expenseEntries), [expenseEntries]);
   const budgetEntries = useMemo(() => Object.entries(draft.budgets ?? {}).map(([id, value]) => ({ id, ...value })), [draft.budgets]);
   const incomeEntries = useMemo(() => Object.entries(draft.incomes).map(([id, value]) => ({ id, ...value })), [draft.incomes]);
   const adjustmentEntries = useMemo(() => Object.entries(draft.adjustments ?? {}).map(([id, value]) => ({ id, ...value })), [draft.adjustments]);
@@ -505,7 +532,11 @@ export default function HomePage() {
 
   const saveExpenseToDraft = (event) => {
     event.preventDefault();
-    const error = validateExpense(expenseForm);
+    const nextExpense = {
+      ...expenseForm,
+      name: sanitizeFirebaseCompatibleText(expenseForm.name),
+    };
+    const error = validateExpense(nextExpense);
 
     if (error) {
       setDataError(error);
@@ -519,14 +550,15 @@ export default function HomePage() {
       expenses: {
         ...current.expenses,
         [expenseId]: {
-          name: expenseForm.name.trim(),
-          amount: Number(expenseForm.amount),
-          currency: expenseForm.currency,
-          category: expenseForm.category,
-          frequency: expenseForm.frequency,
-          movementDate: expenseForm.movementDate,
-          endDate: expenseForm.isRecurringIndefinite ? "" : expenseForm.endDate,
-          isRecurringIndefinite: Boolean(expenseForm.isRecurringIndefinite),
+          name: nextExpense.name,
+          amount: Number(nextExpense.amount),
+          currency: nextExpense.currency,
+          category: nextExpense.category,
+          frequency: nextExpense.frequency,
+          movementDate: nextExpense.movementDate,
+          endDate: nextExpense.isRecurringIndefinite ? "" : nextExpense.endDate,
+          isRecurringIndefinite: Boolean(nextExpense.isRecurringIndefinite),
+          importSource: current.expenses?.[expenseId]?.importSource ?? null,
           createdAt: current.expenses?.[expenseId]?.createdAt ?? Date.now(),
         },
       },
@@ -544,7 +576,7 @@ export default function HomePage() {
     event.preventDefault();
     const budgetId = editingBudgetId || localId("budget");
     const nextBudget = {
-      name: budgetForm.name.trim(),
+      name: sanitizeFirebaseCompatibleText(budgetForm.name),
       amount: Number(budgetForm.amount),
       currency: budgetForm.currency,
       frequency: budgetForm.frequency,
@@ -586,7 +618,11 @@ export default function HomePage() {
 
   const saveIncomeToDraft = (event) => {
     event.preventDefault();
-    const error = validateIncome(incomeForm);
+    const nextIncome = {
+      ...incomeForm,
+      name: sanitizeFirebaseCompatibleText(incomeForm.name),
+    };
+    const error = validateIncome(nextIncome);
 
     if (error) {
       setDataError(error);
@@ -600,15 +636,15 @@ export default function HomePage() {
       incomes: {
         ...current.incomes,
         [incomeId]: {
-          name: incomeForm.name.trim(),
-          amount: Number(incomeForm.amount),
-          currency: incomeForm.currency,
-          frequency: incomeForm.frequency,
-          startDate: incomeForm.startDate,
-          endDate: incomeForm.isRecurringIndefinite ? "" : incomeForm.endDate,
-          isRecurringIndefinite: Boolean(incomeForm.isRecurringIndefinite),
-          isReimbursement: Boolean(incomeForm.isReimbursement),
-          reimbursementCategory: incomeForm.isReimbursement ? incomeForm.reimbursementCategory : "",
+          name: nextIncome.name,
+          amount: Number(nextIncome.amount),
+          currency: nextIncome.currency,
+          frequency: nextIncome.frequency,
+          startDate: nextIncome.startDate,
+          endDate: nextIncome.isRecurringIndefinite ? "" : nextIncome.endDate,
+          isRecurringIndefinite: Boolean(nextIncome.isRecurringIndefinite),
+          isReimbursement: Boolean(nextIncome.isReimbursement),
+          reimbursementCategory: nextIncome.isReimbursement ? nextIncome.reimbursementCategory : "",
           scheduleOverrides: current.incomes?.[incomeId]?.scheduleOverrides ?? {},
           createdAt: current.incomes?.[incomeId]?.createdAt ?? Date.now(),
         },
@@ -723,6 +759,122 @@ export default function HomePage() {
     setScheduleModalIncomeId("");
     setScheduleOccurrenceDate("");
     setScheduleAdjustedDate("");
+  };
+
+  const resetExpenseImportWizard = () => {
+    setExpenseImportFileName("");
+    setExpenseImportSummary(null);
+    setExpenseImportRows([]);
+    setExpenseImportError("");
+  };
+
+  const openExpenseImportModal = () => {
+    setExpenseImportOpened(true);
+    setExpenseImportError("");
+    setActiveTab("expenses");
+  };
+
+  const closeExpenseImportModal = () => {
+    setExpenseImportOpened(false);
+  };
+
+  const loadExpensesFromJsonFile = async (file) => {
+    setExpenseImportError("");
+    setSuccessMessage("");
+
+    try {
+      const rawText = await file.text();
+      const parsedImport = parseSchwabPostedExpenseTransactions(rawText);
+      const nextRows = buildExpenseImportRows({
+        existingFingerprints: expenseImportFingerprints,
+        existingMatchCounts: expenseImportMatchCounts,
+        existingSuggestions: expenseCategorySuggestions,
+        transactions: parsedImport.transactions,
+      });
+
+      if (!nextRows.length) {
+        throw new Error("El archivo no trae PostedTransactions con retiros definitivos para importar como gasto.");
+      }
+
+      setExpenseImportFileName(file.name);
+      setExpenseImportSummary({
+        fromDate: parsedImport.fromDate,
+        toDate: parsedImport.toDate,
+        transactionCount: nextRows.length,
+      });
+      setExpenseImportRows(nextRows);
+      setExpenseImportOpened(true);
+      setDataError("");
+    } catch (error) {
+      resetExpenseImportWizard();
+      setExpenseImportFileName(file?.name ?? "");
+      setExpenseImportError(error?.message ?? "No se pudo procesar el JSON.");
+      setExpenseImportOpened(true);
+    }
+  };
+
+  const updateExpenseImportCategory = (rowId, category) => {
+    setExpenseImportRows((currentRows) => currentRows.map((row) => (row.id === rowId ? { ...row, category } : row)));
+  };
+
+  const importExpenseRowsToDraft = () => {
+    const rowsToImport = expenseImportRows.filter((row) => !row.isDuplicate);
+
+    if (!rowsToImport.length) {
+      setExpenseImportError("No hay movimientos nuevos por importar. El archivo ya esta reflejado en la lista.");
+      return;
+    }
+
+    const missingCategory = rowsToImport.find((row) => !expenseCategories.includes(String(row.category ?? "")));
+
+    if (missingCategory) {
+      setExpenseImportError("Asigna una categoria valida a cada gasto nuevo antes de importarlo.");
+      return;
+    }
+
+    const importStartedAt = Date.now();
+
+    setDraft((current) => {
+      const nextExpenses = { ...(current.expenses ?? {}) };
+
+      rowsToImport.forEach((row, index) => {
+        const expenseId = localId("expense");
+
+        nextExpenses[expenseId] = {
+          name: row.name,
+          amount: row.amount,
+          currency: row.currency,
+          category: row.category,
+          frequency: "Unico",
+          movementDate: row.movementDate,
+          endDate: "",
+          isRecurringIndefinite: false,
+          importSource: {
+            provider: "schwab-json",
+            fingerprint: row.sourceFingerprint,
+            matchKey: row.sourceMatchKey,
+            occurrenceIndex: row.occurrenceIndex,
+            sourceType: row.type,
+            sourceDate: row.movementDate,
+            importedAt: importStartedAt + index,
+          },
+          createdAt: importStartedAt + index,
+        };
+      });
+
+      return {
+        ...current,
+        expenses: nextExpenses,
+      };
+    });
+
+    setExpenseImportOpened(false);
+    resetExpenseImportWizard();
+    setSaveState("idle");
+    setDataError("");
+    setSuccessMessage(
+      `${rowsToImport.length} gasto${rowsToImport.length === 1 ? "" : "s"} agregado${rowsToImport.length === 1 ? "" : "s"} al borrador desde JSON.`,
+    );
   };
 
   const selectIncomeScheduleOccurrence = (occurrenceDate) => {
@@ -934,6 +1086,11 @@ export default function HomePage() {
     setScheduleModalIncomeId("");
     setScheduleOccurrenceDate("");
     setScheduleAdjustedDate("");
+    setExpenseImportOpened(false);
+    setExpenseImportFileName("");
+    setExpenseImportSummary(null);
+    setExpenseImportRows([]);
+    setExpenseImportError("");
     setSaveState("idle");
     setDataError("");
     setSuccessMessage("");
@@ -1191,8 +1348,13 @@ export default function HomePage() {
           {displayedTab === "expenses" ? (
             <section className="workspace-stack expenses-stack">
               <div className="expense-tab-header">
-                <h2>Gestion de Gastos</h2>
-                <p className="section-copy">Registra aqui lo que ya paso. Para proyectar gastos repetitivos, crea bloques en Presupuesto.</p>
+                <div>
+                  <h2>Gestion de Gastos</h2>
+                  <p className="section-copy">Registra aqui lo que ya paso. Para proyectar gastos repetitivos, crea bloques en Presupuesto.</p>
+                </div>
+                <MantineButton onClick={openExpenseImportModal} variant="light">
+                  Importar desde JSON
+                </MantineButton>
               </div>
 
               <form className="panel-card panel-frame entry-form expense-entry-form" onSubmit={saveExpenseToDraft}>
@@ -1204,6 +1366,11 @@ export default function HomePage() {
                   <label className="expense-field expense-field-full">
                     Nombre:
                     <input name="name" onChange={(e) => setExpenseForm((c) => ({ ...c, name: e.target.value }))} value={expenseForm.name} />
+                    {expenseNameWarning ? (
+                      <span className="field-warning">
+                        Firebase no acepta {expenseNameWarning.charactersLabel}. Se guardara como: {expenseNameWarning.sanitizedValue || "sin texto valido"}.
+                      </span>
+                    ) : null}
                   </label>
                   <label className="expense-field">
                     Monto:
@@ -1339,6 +1506,21 @@ export default function HomePage() {
                   <p className="muted-text">Todavia no hay gastos en la lista.</p>
                 )}
               </section>
+
+              <ExpenseImportModal
+                categories={expenseCategories}
+                error={expenseImportError}
+                fileName={expenseImportFileName}
+                formatDateLabel={formatDateLabel}
+                onCategoryChange={updateExpenseImportCategory}
+                onClose={closeExpenseImportModal}
+                onConfirmImport={importExpenseRowsToDraft}
+                onFileSelect={loadExpensesFromJsonFile}
+                onReset={resetExpenseImportWizard}
+                opened={expenseImportOpened}
+                rows={expenseImportRows}
+                summary={expenseImportSummary}
+              />
             </section>
           ) : null}
 
@@ -1358,6 +1540,11 @@ export default function HomePage() {
                   <label className="budget-field budget-field-full">
                     Nombre:
                     <input name="name" onChange={(e) => setBudgetForm((c) => ({ ...c, name: e.target.value }))} value={budgetForm.name} />
+                    {budgetNameWarning ? (
+                      <span className="field-warning">
+                        Firebase no acepta {budgetNameWarning.charactersLabel}. Se guardara como: {budgetNameWarning.sanitizedValue || "sin texto valido"}.
+                      </span>
+                    ) : null}
                   </label>
                   <label className="budget-field">
                     Monto:
@@ -1586,6 +1773,11 @@ export default function HomePage() {
                   <label className="income-field">
                     Nombre:
                     <input name="name" onChange={(e) => setIncomeForm((c) => ({ ...c, name: e.target.value }))} value={incomeForm.name} />
+                    {incomeNameWarning ? (
+                      <span className="field-warning">
+                        Firebase no acepta {incomeNameWarning.charactersLabel}. Se guardara como: {incomeNameWarning.sanitizedValue || "sin texto valido"}.
+                      </span>
+                    ) : null}
                   </label>
                   <label className="income-field">
                     Monto Neto:
@@ -2306,6 +2498,25 @@ function defaultAnalysisSettings() {
   };
 }
 
+function sanitizeExpenseImportSource(source) {
+  const fingerprint = String(source?.fingerprint ?? "").trim();
+  const matchKey = String(source?.matchKey ?? "").trim();
+
+  if (!fingerprint && !matchKey) {
+    return null;
+  }
+
+  return {
+    provider: String(source?.provider ?? "").trim() || "schwab-json",
+    fingerprint,
+    matchKey,
+    occurrenceIndex: Number(source?.occurrenceIndex) || 1,
+    sourceType: String(source?.sourceType ?? "").trim(),
+    sourceDate: String(source?.sourceDate ?? "").trim(),
+    importedAt: Number(source?.importedAt) || 0,
+  };
+}
+
 function sanitizeIncomeScheduleOverrides(overrides) {
   return Object.fromEntries(
     Object.entries(overrides ?? {})
@@ -2383,6 +2594,7 @@ function sanitizeWorkspace(workspace) {
           movementDate: String(value?.movementDate ?? value?.date ?? localDate()),
           endDate: String(value?.endDate ?? "").trim(),
           isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
+          importSource: sanitizeExpenseImportSource(value?.importSource),
           createdAt: Number(value?.createdAt) || Date.now(),
         },
       ]),
@@ -2581,6 +2793,78 @@ function validateWorkspace(workspace) {
   const settingsError = validateAnalysisSettings(workspace.analysisSettings ?? defaultAnalysisSettings());
   if (settingsError) return settingsError;
   return "";
+}
+
+function buildExpenseCategorySuggestionKey(value) {
+  return sanitizeFirebaseCompatibleText(value)
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function buildExpenseImportMatchCountMap(expenses) {
+  const counts = new Map();
+
+  for (const expense of expenses ?? []) {
+    const movementDate = String(expense?.movementDate ?? expense?.date ?? "").trim();
+    const name = String(expense?.name ?? expense?.merchantName ?? expense?.detail ?? "").trim();
+    const matchKey =
+      String(expense?.importSource?.matchKey ?? "").trim() ||
+      buildExpenseImportMatchKey({
+        amount: expense?.amount,
+        currency: expense?.currency,
+        movementDate,
+        name,
+      });
+
+    if (!matchKey) {
+      continue;
+    }
+
+    counts.set(matchKey, (counts.get(matchKey) ?? 0) + 1);
+  }
+
+  return counts;
+}
+
+function buildExpenseCategorySuggestionMap(expenses) {
+  const categoryBuckets = new Map();
+
+  for (const expense of expenses ?? []) {
+    const category = expenseCategories.includes(String(expense?.category ?? "")) ? String(expense.category) : "";
+    const suggestionKey = buildExpenseCategorySuggestionKey(expense?.name ?? expense?.merchantName ?? expense?.detail ?? "");
+
+    if (!category || !suggestionKey) {
+      continue;
+    }
+
+    const bucket = categoryBuckets.get(suggestionKey) ?? new Map();
+
+    bucket.set(category, (bucket.get(category) ?? 0) + 1);
+    categoryBuckets.set(suggestionKey, bucket);
+  }
+
+  return new Map(
+    [...categoryBuckets.entries()].map(([suggestionKey, bucket]) => [
+      suggestionKey,
+      [...bucket.entries()].sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0], "es", { sensitivity: "base" }))[0]?.[0] ?? "",
+    ]),
+  );
+}
+
+function buildExpenseImportRows({ existingFingerprints, existingMatchCounts, existingSuggestions, transactions }) {
+  return (transactions ?? []).map((transaction) => {
+    const suggestedCategory = existingSuggestions.get(buildExpenseCategorySuggestionKey(transaction.name)) ?? "";
+    const duplicateByFingerprint = existingFingerprints.has(transaction.sourceFingerprint);
+    const duplicateByCount = transaction.occurrenceIndex <= (existingMatchCounts.get(transaction.sourceMatchKey) ?? 0);
+
+    return {
+      ...transaction,
+      category: suggestedCategory,
+      suggestedCategory,
+      isDuplicate: duplicateByFingerprint || duplicateByCount,
+    };
+  });
 }
 
 function sortCollection(items, sortState, valueGetter) {
