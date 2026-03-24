@@ -825,13 +825,6 @@ export default function HomePage() {
       return;
     }
 
-    const missingCategory = rowsToImport.find((row) => !expenseCategories.includes(String(row.category ?? "")));
-
-    if (missingCategory) {
-      setExpenseImportError("Asigna una categoria valida a cada gasto nuevo antes de importarlo.");
-      return;
-    }
-
     const importStartedAt = Date.now();
 
     setDraft((current) => {
@@ -844,7 +837,7 @@ export default function HomePage() {
           name: row.name,
           amount: row.amount,
           currency: row.currency,
-          category: row.category,
+          category: expenseCategories.includes(String(row.category ?? "")) ? row.category : "Otros",
           frequency: "Unico",
           movementDate: row.movementDate,
           endDate: "",

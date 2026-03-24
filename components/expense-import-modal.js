@@ -91,7 +91,7 @@ export default function ExpenseImportModal({
     await onFileSelect(file);
   };
 
-  const canImport = Boolean(rows.length) && stats.importableCount > 0 && stats.pendingCategoryCount === 0;
+  const canImport = Boolean(rows.length) && stats.importableCount > 0;
 
   return (
     <Modal centered onClose={onClose} opened={opened} size="xl" title="Importar gastos desde JSON">
@@ -176,7 +176,7 @@ export default function ExpenseImportModal({
                 Resumen del wizard
               </Text>
               <Text c="dimmed" size="sm">
-                Revisa categorias antes de agregar estos gastos al draft actual.
+                Puedes importar por tandas. Lo que no categorices ahora entra como Otros y luego lo ajustas en la lista.
               </Text>
             </div>
 
@@ -271,7 +271,7 @@ export default function ExpenseImportModal({
 
         <Group justify="space-between">
           <Text c="dimmed" size="sm">
-            Si un movimiento ya existe, se mantiene fuera de la importacion para evitar duplicados.
+            Si un movimiento ya existe, se mantiene fuera de la importacion. Las filas sin categoria se guardan como Otros para que puedas seguir en otra tanda.
           </Text>
           <Group gap="sm">
             <Button onClick={onClose} variant="default">
