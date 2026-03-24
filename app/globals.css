@@ -866,10 +866,11 @@ button {
   border: 1px solid rgba(62, 89, 119, 0.2);
   border-radius: 16px;
   background: rgba(250, 252, 255, 0.95);
+  max-width: 100%;
 }
 
 .expense-import-table {
-  min-width: 980px;
+  min-width: 1180px;
   background: linear-gradient(180deg, rgba(251, 253, 255, 0.96) 0%, rgba(244, 248, 253, 0.92) 100%);
 }
 
@@ -892,8 +893,13 @@ button {
   gap: 0.35rem;
 }
 
+.expense-import-description {
+  min-width: 320px;
+}
+
 .expense-import-category-cell select {
   min-height: 40px;
+  min-width: 180px;
   padding: 0.7rem 0.8rem;
   border: 1px solid rgba(120, 140, 166, 0.42);
   border-radius: 12px;

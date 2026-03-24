@@ -93,10 +93,13 @@ export default function ExpenseImportModal({
     await onFileSelect(file);
   };
 
-  const canImport = Boolean(rows.length) && stats.categorizedImportCount > 0;
+  const editableExistingCount = rows.filter(
+    (row) => row.isDuplicate && row.category && String(row.category ?? "") !== String(row.existingCategory ?? ""),
+  ).length;
+  const canImport = Boolean(rows.length) && (stats.categorizedImportCount > 0 || editableExistingCount > 0);
 
   return (
-    <Modal centered onClose={onClose} opened={opened} size="xl" title="Importar gastos desde JSON">
+    <Modal centered onClose={onClose} opened={opened} size="min(1480px, calc(100vw - 24px))" title="Importar gastos desde JSON">
       <div className="expense-import-modal">
         <Stepper active={rows.length ? 1 : 0} allowNextStepsSelect={false} iconPosition="right">
           <Stepper.Step description="Carga JSON Schwab" label="Archivo" />
@@ -178,7 +181,7 @@ export default function ExpenseImportModal({
                 Resumen del wizard
               </Text>
               <Text c="dimmed" size="sm">
-                Puedes importar por tandas. Solo se agregan las filas con categoria asignada y el resto queda pendiente para otra pasada.
+                Puedes importar por tandas. Las nuevas solo entran si tienen categoria, y las ya importadas se pueden recategorizar desde aqui.
               </Text>
             </div>
 
@@ -191,6 +194,9 @@ export default function ExpenseImportModal({
               </Badge>
               <Badge color={stats.duplicateCount ? "red" : "gray"} radius="sm" variant="light">
                 {stats.duplicateCount} duplicados
+              </Badge>
+              <Badge color={editableExistingCount ? "violet" : "gray"} radius="sm" variant="light">
+                {editableExistingCount} cambios sobre existentes
               </Badge>
               <Badge color={stats.normalizedCount ? "blue" : "gray"} radius="sm" variant="light">
                 {stats.normalizedCount} normalizados
@@ -239,11 +245,7 @@ export default function ExpenseImportModal({
                     </Table.Td>
                     <Table.Td>
                       <div className="expense-import-category-cell">
-                        <select
-                          disabled={row.isDuplicate}
-                          onChange={(event) => onCategoryChange(row.id, event.target.value)}
-                          value={row.category}
-                        >
+                        <select onChange={(event) => onCategoryChange(row.id, event.target.value)} value={row.category}>
                           <option value="">Seleccionar</option>
                           {categories.map((category) => (
                             <option key={category} value={category}>
@@ -256,12 +258,17 @@ export default function ExpenseImportModal({
                             Sugerida: {row.suggestedCategory}
                           </Badge>
                         ) : null}
+                        {row.isDuplicate ? (
+                          <Badge color="violet" radius="sm" size="xs" variant="light">
+                            Actual: {row.existingCategory || "Sin categoria"}
+                          </Badge>
+                        ) : null}
                       </div>
                     </Table.Td>
                     <Table.Td>{row.type}</Table.Td>
                     <Table.Td>
-                      <Badge color={row.isDuplicate ? "red" : "teal"} radius="sm" variant="light">
-                        {row.isDuplicate ? "Si" : "No"}
+                      <Badge color={row.isDuplicate ? "violet" : "teal"} radius="sm" variant="light">
+                        {row.isDuplicate ? "Ya existe" : "Nuevo"}
                       </Badge>
                     </Table.Td>
                   </Table.Tr>
@@ -273,7 +280,7 @@ export default function ExpenseImportModal({
 
         <Group justify="space-between">
           <Text c="dimmed" size="sm">
-            Si un movimiento ya existe, se mantiene fuera de la importacion. Las filas sin categoria no se agregan para que puedas seguir en otra tanda.
+            Si un movimiento ya existe, puedes cambiarle la categoria aqui mismo. Las filas nuevas sin categoria no se agregan para que puedas seguir en otra tanda.
           </Text>
           <Group gap="sm">
             <Button onClick={onClose} variant="default">

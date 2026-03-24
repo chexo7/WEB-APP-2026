@@ -288,11 +288,6 @@ export default function HomePage() {
     recentVersions.find((version) => version.key === selectedVersionKey) ?? recentVersions[0] ?? null;
 
   const expenseEntries = useMemo(() => Object.entries(draft.expenses).map(([id, value]) => ({ id, ...value })), [draft.expenses]);
-  const expenseImportFingerprints = useMemo(
-    () => new Set(expenseEntries.map((expense) => String(expense.importSource?.fingerprint ?? "").trim()).filter(Boolean)),
-    [expenseEntries],
-  );
-  const expenseImportMatchCounts = useMemo(() => buildExpenseImportMatchCountMap(expenseEntries), [expenseEntries]);
   const expenseCategorySuggestions = useMemo(() => buildExpenseCategorySuggestionMap(expenseEntries), [expenseEntries]);
   const budgetEntries = useMemo(() => Object.entries(draft.budgets ?? {}).map(([id, value]) => ({ id, ...value })), [draft.budgets]);
   const incomeEntries = useMemo(() => Object.entries(draft.incomes).map(([id, value]) => ({ id, ...value })), [draft.incomes]);
@@ -786,9 +781,8 @@ export default function HomePage() {
       const rawText = await file.text();
       const parsedImport = parseSchwabPostedExpenseTransactions(rawText);
       const nextRows = buildExpenseImportRows({
-        existingFingerprints: expenseImportFingerprints,
-        existingMatchCounts: expenseImportMatchCounts,
         existingSuggestions: expenseCategorySuggestions,
+        existingExpenses: expenseEntries,
         transactions: parsedImport.transactions,
       });
 
@@ -818,12 +812,19 @@ export default function HomePage() {
   };
 
   const importExpenseRowsToDraft = () => {
-    const rowsToImport = expenseImportRows.filter(
+    const rowsToCreate = expenseImportRows.filter(
       (row) => !row.isDuplicate && expenseCategories.includes(String(row.category ?? "")),
     );
+    const rowsToUpdate = expenseImportRows.filter(
+      (row) =>
+        row.isDuplicate &&
+        row.matchedExpenseId &&
+        expenseCategories.includes(String(row.category ?? "")) &&
+        String(row.category ?? "") !== String(row.existingCategory ?? ""),
+    );
 
-    if (!rowsToImport.length) {
-      setExpenseImportError("No hay movimientos categorizados listos para importar. Asigna categoria a las filas que quieras agregar.");
+    if (!rowsToCreate.length && !rowsToUpdate.length) {
+      setExpenseImportError("No hay cambios listos para aplicar. Asigna categoria a filas nuevas o ajusta una categoria ya importada.");
       return;
     }
 
@@ -832,7 +833,20 @@ export default function HomePage() {
     setDraft((current) => {
       const nextExpenses = { ...(current.expenses ?? {}) };
 
-      rowsToImport.forEach((row, index) => {
+      rowsToUpdate.forEach((row) => {
+        const currentExpense = nextExpenses[row.matchedExpenseId];
+
+        if (!currentExpense) {
+          return;
+        }
+
+        nextExpenses[row.matchedExpenseId] = {
+          ...currentExpense,
+          category: row.category,
+        };
+      });
+
+      rowsToCreate.forEach((row, index) => {
         const expenseId = localId("expense");
 
         nextExpenses[expenseId] = {
@@ -868,7 +882,7 @@ export default function HomePage() {
     setSaveState("idle");
     setDataError("");
     setSuccessMessage(
-      `${rowsToImport.length} gasto${rowsToImport.length === 1 ? "" : "s"} agregado${rowsToImport.length === 1 ? "" : "s"} al borrador desde JSON.`,
+      buildExpenseImportSuccessMessage(rowsToCreate.length, rowsToUpdate.length),
     );
   };
 
@@ -2826,31 +2840,6 @@ function buildExpenseCategorySuggestionKey(value) {
     .trim();
 }
 
-function buildExpenseImportMatchCountMap(expenses) {
-  const counts = new Map();
-
-  for (const expense of expenses ?? []) {
-    const movementDate = String(expense?.movementDate ?? expense?.date ?? "").trim();
-    const name = String(expense?.name ?? expense?.merchantName ?? expense?.detail ?? "").trim();
-    const matchKey =
-      String(expense?.importSource?.matchKey ?? "").trim() ||
-      buildExpenseImportMatchKey({
-        amount: expense?.amount,
-        currency: expense?.currency,
-        movementDate,
-        name,
-      });
-
-    if (!matchKey) {
-      continue;
-    }
-
-    counts.set(matchKey, (counts.get(matchKey) ?? 0) + 1);
-  }
-
-  return counts;
-}
-
 function buildExpenseCategorySuggestionMap(expenses) {
   const categoryBuckets = new Map();
 
@@ -2876,19 +2865,75 @@ function buildExpenseCategorySuggestionMap(expenses) {
   );
 }
 
-function buildExpenseImportRows({ existingFingerprints, existingMatchCounts, existingSuggestions, transactions }) {
+function buildExpenseImportExistingMaps(expenses) {
+  const fingerprintMap = new Map();
+  const matchQueues = new Map();
+
+  for (const expense of expenses ?? []) {
+    const movementDate = String(expense?.movementDate ?? expense?.date ?? "").trim();
+    const name = String(expense?.name ?? expense?.merchantName ?? expense?.detail ?? "").trim();
+    const matchKey =
+      String(expense?.importSource?.matchKey ?? "").trim() ||
+      buildExpenseImportMatchKey({
+        amount: expense?.amount,
+        currency: expense?.currency,
+        movementDate,
+        name,
+      });
+    const fingerprint = String(expense?.importSource?.fingerprint ?? "").trim();
+
+    if (fingerprint) {
+      fingerprintMap.set(fingerprint, expense);
+    }
+
+    if (!matchKey) {
+      continue;
+    }
+
+    const queue = matchQueues.get(matchKey) ?? [];
+
+    queue.push(expense);
+    matchQueues.set(matchKey, queue);
+  }
+
+  return { fingerprintMap, matchQueues };
+}
+
+function buildExpenseImportRows({ existingSuggestions, existingExpenses, transactions }) {
+  const { fingerprintMap, matchQueues } = buildExpenseImportExistingMaps(existingExpenses);
+
   return (transactions ?? []).map((transaction) => {
     const suggestedCategory = existingSuggestions.get(buildExpenseCategorySuggestionKey(transaction.name)) ?? "";
-    const duplicateByFingerprint = existingFingerprints.has(transaction.sourceFingerprint);
-    const duplicateByCount = transaction.occurrenceIndex <= (existingMatchCounts.get(transaction.sourceMatchKey) ?? 0);
+    const matchedExpense =
+      fingerprintMap.get(transaction.sourceFingerprint) ?? (matchQueues.get(transaction.sourceMatchKey) ?? [])[transaction.occurrenceIndex - 1] ?? null;
 
     return {
       ...transaction,
-      category: suggestedCategory,
+      category: matchedExpense?.category ?? suggestedCategory,
+      existingCategory: matchedExpense?.category ?? "",
+      matchedExpenseId: matchedExpense?.id ?? "",
       suggestedCategory,
-      isDuplicate: duplicateByFingerprint || duplicateByCount,
+      isDuplicate: Boolean(matchedExpense),
     };
   });
+}
+
+function buildExpenseImportSuccessMessage(createdCount, updatedCount) {
+  const parts = [];
+
+  if (createdCount) {
+    parts.push(`${createdCount} gasto${createdCount === 1 ? "" : "s"} nuevo${createdCount === 1 ? "" : "s"}`);
+  }
+
+  if (updatedCount) {
+    parts.push(`${updatedCount} categoria${updatedCount === 1 ? "" : "s"} actualizada${updatedCount === 1 ? "" : "s"}`);
+  }
+
+  if (!parts.length) {
+    return "No hubo cambios para aplicar desde el JSON.";
+  }
+
+  return `${parts.join(" y ")} aplicad${parts.length === 1 && createdCount === 1 && !updatedCount ? "o" : "os"} desde el JSON al borrador.`;
 }
 
 function sortCollection(items, sortState, valueGetter) {
