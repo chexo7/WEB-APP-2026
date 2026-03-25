@@ -60,19 +60,17 @@ const incomeFrequencies = ["Mensual", "Semanal", "Bi-semanal", "Unico"];
 const incomeCurrencies = expenseCurrencies;
 const spanishDateLocale = es;
 const fixedExpenseCategories = sortLabelsAlphabetically([
-  "Ahorros",
+  "Ahorro - Inversion",
   "Arriendo",
   "Creditos",
   "Cuentas",
-  "Gastos Comunes",
-  "Inversiones",
+  "Deporte",
   "Suscripciones",
 ]);
 const variableExpenseCategories = sortLabelsAlphabetically([
   "Auto",
   "Cosas de Casa",
   "Delivery",
-  "Deporte",
   "Minimarket",
   "Otros",
   "Panoramas",
@@ -83,7 +81,6 @@ const variableExpenseCategories = sortLabelsAlphabetically([
   "Supermercado",
   "Transporte Publico",
   "Uber",
-  "Vega",
   "Viajes",
 ]);
 const expenseCategories = sortLabelsAlphabetically([...new Set([...fixedExpenseCategories, ...variableExpenseCategories])]);
@@ -132,6 +129,8 @@ export default function HomePage() {
   const [adjustmentSort, setAdjustmentSort] = useState({ key: "date", direction: "desc" });
   const [cashflowTooltip, setCashflowTooltip] = useState(null);
   const [cashflowModelCache, setCashflowModelCache] = useState({ daily: null, weekly: null, monthly: null });
+  const cashflowTopScrollRef = useRef(null);
+  const cashflowTopScrollSpacerRef = useRef(null);
   const cashflowScrollRef = useRef(null);
   const currentDayColumnRef = useRef(null);
   const expenseNameWarning = useMemo(() => getFirebaseTextWarning(expenseForm.name), [expenseForm.name]);
@@ -424,6 +423,70 @@ export default function HomePage() {
   }, [cashflowModel.dates.length, cashflowModel.todayKey, displayedTab]);
 
   useEffect(() => {
+    if (displayedTab !== "cashflow") {
+      return;
+    }
+
+    const mainScroller = cashflowScrollRef.current;
+    const topScroller = cashflowTopScrollRef.current;
+    const topSpacer = cashflowTopScrollSpacerRef.current;
+
+    if (!mainScroller || !topScroller || !topSpacer) {
+      return;
+    }
+
+    let syncingFromMain = false;
+    let syncingFromTop = false;
+
+    const syncWidth = () => {
+      topSpacer.style.width = `${mainScroller.scrollWidth}px`;
+      topScroller.scrollLeft = mainScroller.scrollLeft;
+    };
+
+    const handleMainScroll = () => {
+      if (syncingFromTop) {
+        return;
+      }
+
+      syncingFromMain = true;
+      topScroller.scrollLeft = mainScroller.scrollLeft;
+      syncingFromMain = false;
+    };
+
+    const handleTopScroll = () => {
+      if (syncingFromMain) {
+        return;
+      }
+
+      syncingFromTop = true;
+      mainScroller.scrollLeft = topScroller.scrollLeft;
+      syncingFromTop = false;
+    };
+
+    syncWidth();
+    mainScroller.addEventListener("scroll", handleMainScroll);
+    topScroller.addEventListener("scroll", handleTopScroll);
+    window.addEventListener("resize", syncWidth);
+
+    let resizeObserver = null;
+    if (typeof ResizeObserver !== "undefined") {
+      resizeObserver = new ResizeObserver(syncWidth);
+      resizeObserver.observe(mainScroller);
+
+      if (mainScroller.firstElementChild) {
+        resizeObserver.observe(mainScroller.firstElementChild);
+      }
+    }
+
+    return () => {
+      mainScroller.removeEventListener("scroll", handleMainScroll);
+      topScroller.removeEventListener("scroll", handleTopScroll);
+      window.removeEventListener("resize", syncWidth);
+      resizeObserver?.disconnect();
+    };
+  }, [cashflowModel.dates.length, cashflowModel.rows.length, displayedTab]);
+
+  useEffect(() => {
     setCashflowModelCache({
       daily: cashflowBaseModel,
       weekly: weeklyCashflowModel,
@@ -579,11 +642,12 @@ export default function HomePage() {
       name: sanitizeFirebaseCompatibleText(budgetForm.name),
       amount: Number(budgetForm.amount),
       currency: budgetForm.currency,
+      category: normalizeExpenseCategory(budgetForm.linkedCategories?.[0]),
       frequency: budgetForm.frequency,
       startDate: budgetForm.startDate,
       endDate: budgetForm.isRecurringIndefinite ? "" : budgetForm.endDate,
       isRecurringIndefinite: Boolean(budgetForm.isRecurringIndefinite),
-      linkedCategories: sortLabelsAlphabetically([...new Set(budgetForm.linkedCategories)]),
+      linkedCategories: sortLabelsAlphabetically([...new Set((budgetForm.linkedCategories ?? []).map(normalizeExpenseCategory))]),
       createdAt: draft.budgets?.[budgetId]?.createdAt ?? Date.now(),
     };
     const error = validateBudget(nextBudget);
@@ -696,7 +760,7 @@ export default function HomePage() {
       name: expense.name ?? expense.merchantName ?? expense.detail ?? "",
       amount: String(expense.amount ?? ""),
       currency: expense.currency ?? "USD",
-      category: expense.category ?? "Ahorros",
+      category: normalizeExpenseCategory(expense.category),
       frequency: expense.frequency ?? "Unico",
       movementDate: expense.movementDate ?? expense.date ?? localDate(),
       endDate: expense.endDate ?? "",
@@ -719,7 +783,7 @@ export default function HomePage() {
       startDate: budget.startDate ?? localDate(),
       endDate: budget.endDate ?? "",
       isRecurringIndefinite: Boolean(budget.isRecurringIndefinite),
-      linkedCategories: [...new Set(budget.linkedCategories ?? [])],
+      linkedCategories: getBudgetCategories(budget),
     });
     setEditingBudgetId(budgetId);
     setActiveTab("budgets");
@@ -1589,13 +1653,16 @@ export default function HomePage() {
             <section className="workspace-stack budgets-stack">
               <div className="budget-tab-header">
                 <h2>Presupuesto</h2>
-                <p className="section-copy">Crea bloques simples para proyectar gasto futuro y comparar automaticamente contra lo que registres en Gastos.</p>
+                <p className="section-copy">Define bloques por categoria con fecha y frecuencia para comparar cada gasto real contra su presupuesto exacto.</p>
               </div>
 
               <form className="panel-card panel-frame entry-form budget-entry-form" onSubmit={saveBudgetToDraft}>
                 <div className="budget-form-title">
                   <p className="form-kicker">Planeacion</p>
                   <h3>{editingBudgetId ? "Modificar Presupuesto" : "Crear Bloque de Presupuesto"}</h3>
+                  <p className="budget-form-copy">
+                    Mantener fecha y frecuencia ayuda a que la tabla y los graficos conserven la resolucion exacta de cada bloque.
+                  </p>
                 </div>
 
                 <div className="budget-form-grid">
@@ -1893,7 +1960,7 @@ export default function HomePage() {
                               </span>
                               <p>{budget.scheduleLabel}</p>
                               <div className="budget-chip-row">
-                                {(budget.linkedCategories ?? []).map((category) => (
+                                {getBudgetCategories(budget).map((category) => (
                                   <span className="budget-category-chip" key={`${budget.id}-${category}`}>
                                     {category}
                                   </span>
@@ -2295,6 +2362,13 @@ export default function HomePage() {
                 </div>
               </div>
 
+              <div className="cashflow-top-scroll-shell" aria-hidden="true">
+                <div className="cashflow-top-scroll-spacer" />
+                <div className="cashflow-top-scroll-track" ref={cashflowTopScrollRef}>
+                  <div className="cashflow-top-scroll-content" ref={cashflowTopScrollSpacerRef} />
+                </div>
+              </div>
+
               <div className="cashflow-grid" onMouseLeave={() => setCashflowTooltip(null)}>
                 <div className="cashflow-label-pane">
                   <table className="cashflow-label-table">
@@ -2616,7 +2690,7 @@ function defaultExpenseForm() {
     name: "",
     amount: "",
     currency: "USD",
-    category: "Ahorros",
+    category: "Otros",
     frequency: "Unico",
     movementDate: localDate(),
     endDate: "",
@@ -2715,6 +2789,35 @@ function sortLabelsAlphabetically(items) {
   return [...items].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
 
+function normalizeExpenseCategory(category) {
+  const normalizedCategory = String(category ?? "").trim();
+
+  if (!normalizedCategory) {
+    return "Otros";
+  }
+
+  if (normalizedCategory === "Ahorros" || normalizedCategory === "Inversiones") {
+    return "Ahorro - Inversion";
+  }
+
+  if (normalizedCategory === "Gastos Comunes") {
+    return "Cuentas";
+  }
+
+  if (normalizedCategory === "Vega") {
+    return "Supermercado";
+  }
+
+  return expenseCategories.includes(normalizedCategory) ? normalizedCategory : "Otros";
+}
+
+function getBudgetCategories(budget) {
+  const rawCategories = budget?.linkedCategories?.length ? budget.linkedCategories : [budget?.category];
+  const categories = rawCategories.map(normalizeExpenseCategory).filter(Boolean);
+
+  return sortLabelsAlphabetically([...new Set(categories)]).slice(0, 12);
+}
+
 function localId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -2759,7 +2862,7 @@ function sanitizeWorkspace(workspace) {
           name: String(value?.name ?? value?.merchantName ?? value?.detail ?? "").trim(),
           amount: Number(value?.amount) || 0,
           currency: value?.currency === "CLP" ? "CLP" : "USD",
-          category: expenseCategories.includes(String(value?.category ?? "")) ? String(value?.category) : "Otros",
+          category: normalizeExpenseCategory(value?.category),
           frequency: expenseFrequencies.includes(String(value?.frequency ?? "")) ? String(value?.frequency) : "Unico",
           movementDate: String(value?.movementDate ?? value?.date ?? localDate()),
           endDate: String(value?.endDate ?? "").trim(),
@@ -2772,19 +2875,22 @@ function sanitizeWorkspace(workspace) {
     budgets: Object.fromEntries(
       Object.entries(workspace?.budgets ?? {}).map(([id, value]) => [
         id,
-        {
+        (() => {
+          const categories = getBudgetCategories(value);
+
+          return {
           name: String(value?.name ?? "").trim(),
           amount: Number(value?.amount) || 0,
           currency: value?.currency === "CLP" ? "CLP" : "USD",
+          category: categories[0] ?? fixedExpenseCategories[0] ?? expenseCategories[0] ?? "Otros",
           frequency: expenseFrequencies.includes(String(value?.frequency ?? "")) ? String(value?.frequency) : "Mensual",
           startDate: String(value?.startDate ?? localDate()),
           endDate: String(value?.endDate ?? "").trim(),
           isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
-          linkedCategories: sortLabelsAlphabetically(
-            [...new Set((value?.linkedCategories ?? []).filter((category) => expenseCategories.includes(String(category ?? ""))))].map(String),
-          ),
+          linkedCategories: categories.length ? categories : [fixedExpenseCategories[0] ?? expenseCategories[0] ?? "Otros"],
           createdAt: Number(value?.createdAt) || Date.now(),
-        },
+          };
+        })(),
       ]),
     ),
     incomes: Object.fromEntries(
@@ -2799,7 +2905,7 @@ function sanitizeWorkspace(workspace) {
           endDate: String(value?.endDate ?? "").trim(),
           isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
           isReimbursement: Boolean(value?.isReimbursement),
-          reimbursementCategory: expenseCategories.includes(String(value?.reimbursementCategory ?? "")) ? String(value?.reimbursementCategory) : "",
+          reimbursementCategory: value?.isReimbursement ? normalizeExpenseCategory(value?.reimbursementCategory) : "",
           scheduleOverrides: sanitizeIncomeScheduleOverrides(value?.scheduleOverrides),
           createdAt: Number(value?.createdAt) || Date.now(),
         },
@@ -2923,11 +3029,11 @@ function validateBudgetCollection(budgets) {
   for (let index = 0; index < budgetList.length; index += 1) {
     const current = budgetList[index];
     const currentRange = getBudgetActiveRange(current);
-    const currentCategories = current.linkedCategories ?? [];
+    const currentCategories = getBudgetCategories(current);
 
     for (let compareIndex = index + 1; compareIndex < budgetList.length; compareIndex += 1) {
       const candidate = budgetList[compareIndex];
-      const candidateCategories = candidate.linkedCategories ?? [];
+      const candidateCategories = getBudgetCategories(candidate);
       const sharedCategories = currentCategories.filter((category) => candidateCategories.includes(category));
 
       if (!sharedCategories.length) continue;
@@ -3480,7 +3586,7 @@ function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDa
         monthMap[period.monthKey].budgeted += period.plannedAmount;
       }
 
-      for (const category of budget.linkedCategories ?? []) {
+      for (const category of getBudgetCategories(budget)) {
         if (!periodsByCategory[category]) {
           periodsByCategory[category] = [];
         }
@@ -3569,7 +3675,7 @@ function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDa
       name: budget.name ?? "",
       currency: budget.currency ?? "USD",
       frequency: budget.frequency ?? "Mensual",
-      linkedCategories: budget.linkedCategories ?? [],
+      linkedCategories: getBudgetCategories(budget),
       scheduleLabel: buildBudgetScheduleLabel(budget),
       ...pickBudgetSnapshot(periodsByBudget[budget.id] ?? [], currentDateKey),
     }))
@@ -3642,9 +3748,7 @@ function buildBudgetMonthlyOverviewModel({ budgets, expenses, incomes = [], curr
     if (!monthlyPeriods.length) continue;
 
     const plannedAmount = monthlyPeriods.reduce((sum, period) => sum + period.plannedAmount, 0);
-    const linkedCategories = sortLabelsAlphabetically(
-      [...new Set((budget.linkedCategories ?? []).filter((category) => expenseCategories.includes(String(category ?? ""))))].map(String),
-    );
+    const linkedCategories = getBudgetCategories(budget);
 
     monthlyBudgets.push({
       currency: budget.currency ?? "USD",
@@ -3980,7 +4084,7 @@ function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, curre
     name: budget.name,
     amount: budget.amount,
     currency: budget.currency,
-    category: budget.linkedCategories?.[0] ?? "Otros",
+    category: getBudgetCategories(budget)[0] ?? "Otros",
     frequency: budget.frequency,
     movementDate: budget.startDate,
     endDate: budget.endDate,
