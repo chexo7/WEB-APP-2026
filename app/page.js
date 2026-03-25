@@ -2544,19 +2544,19 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
             ) : null}
             <Line
               activeDot={{ r: 4 }}
-              dataKey="estimatedBalance"
+              dataKey="budgetBalance"
               dot={false}
-              name="Saldo final estimado"
-              stroke="#111111"
+              name="Saldo presupuestado a la fecha"
+              stroke="#8a929d"
               strokeWidth={3}
               type="linear"
             />
             <Line
               activeDot={{ r: 4 }}
-              dataKey="budgetBalance"
+              dataKey="estimatedBalance"
               dot={false}
-              name="Saldo presupuestado a la fecha"
-              stroke="#8a929d"
+              name="Saldo final estimado"
+              stroke="#111111"
               strokeWidth={3}
               type="linear"
             />
