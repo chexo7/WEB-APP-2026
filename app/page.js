@@ -1190,9 +1190,7 @@ export default function HomePage() {
         <div className="topbar-copy">
           <p className="eyebrow">Web App Flujo De Caja</p>
           <h1>Cash Flow Pulento</h1>
-          <p className="muted-text">La base real se carga desde una entrada final y aqui trabajas la proyeccion activa antes de guardar la siguiente.</p>
           <div className="topbar-meta">
-            <span className="hero-chip hero-chip-strong">Base real: {selectedVersion ? selectedVersion.snapshotDate : "sin datos"}</span>
             <span className="hero-chip">{draftRecordCount} registros proyectados</span>
           </div>
         </div>
