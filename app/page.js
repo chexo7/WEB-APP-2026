@@ -4393,11 +4393,11 @@ function formatBalanceTrendTick(dateKey, resolution = "daily") {
   if (!isValidDate(date)) return dateKey;
 
   if (resolution === "monthly") {
-    return formatMonthTick(formatDateValue(date, "yyyy-MM"));
+    return formatDateValue(date, "d MMMM yyyy", { locale: spanishDateLocale });
   }
 
   if (resolution === "weekly") {
-    return capitalizeLabel(formatDateValue(date, "dd MMM", { locale: spanishDateLocale }).replace(".", ""));
+    return capitalizeLabel(formatDateValue(date, "eee d MMM", { locale: spanishDateLocale }).replaceAll(".", ""));
   }
 
   const isMonthStart = date.getDate() === 1;
@@ -4446,6 +4446,7 @@ function formatDateLabel(value) {
 function buildBalanceTrendTicks(points, resolution) {
   if (!points?.length || resolution === "daily") return [];
 
+  const availableDates = new Set(points.map((point) => point.date));
   const ticks = [];
   let previousPeriodKey = "";
 
@@ -4454,7 +4455,12 @@ function buildBalanceTrendTicks(points, resolution) {
     if (!descriptor) continue;
 
     if (descriptor.key !== previousPeriodKey) {
-      ticks.push(point.date);
+      const referenceDate =
+        resolution === "monthly"
+          ? firstDayOfMonth(descriptor.key)
+          : localDate(getStartOfWeek(parseDateKey(point.date), { weekStartsOn: 1 }));
+
+      ticks.push(availableDates.has(referenceDate) ? referenceDate : point.date);
       previousPeriodKey = descriptor.key;
     }
   }
@@ -4478,11 +4484,11 @@ function resolveBalanceTrendChartWidth(pointCount, resolution) {
 
 function getBalanceTrendResolutionCopy(resolution) {
   if (resolution === "weekly") {
-    return "El eje X destaca el inicio de cada semana, pero la curva sigue trazada con todos los dias.";
+    return "El eje X toma los lunes como referencia semanal, pero la curva sigue trazada con todos los dias.";
   }
 
   if (resolution === "monthly") {
-    return "El eje X destaca cada mes y comprime la vista, manteniendo intacto el detalle diario de la serie.";
+    return "El eje X marca el dia 1 de cada mes y comprime la vista, manteniendo intacto el detalle diario de la serie.";
   }
 
   return "Cada marca del eje X sigue el ritmo diario original del flujo proyectado.";
