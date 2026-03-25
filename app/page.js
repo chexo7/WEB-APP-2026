@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
-import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Progress, Tabs as MantineTabs, Text } from "@mantine/core";
+import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Tabs as MantineTabs, Text } from "@mantine/core";
 import {
   addDays as addCalendarDays,
   addMonths as addCalendarMonths,
@@ -100,6 +100,7 @@ export default function HomePage() {
   const [activeTab, setActiveTab] = useState("summary");
   const [cashflowResolution, setCashflowResolution] = useState("weekly");
   const [balanceTrendResolution, setBalanceTrendResolution] = useState("daily");
+  const [budgetOverviewMonth, setBudgetOverviewMonth] = useState(localDate().slice(0, 7));
   const [scheduleModalIncomeId, setScheduleModalIncomeId] = useState("");
   const [scheduleOccurrenceDate, setScheduleOccurrenceDate] = useState("");
   const [scheduleAdjustedDate, setScheduleAdjustedDate] = useState("");
@@ -335,6 +336,18 @@ export default function HomePage() {
       }),
     [analysisSettings, budgets, expenses, incomes, todayKey],
   );
+  const budgetMonthlyOverview = useMemo(
+    () =>
+      buildBudgetMonthlyOverviewModel({
+        budgets,
+        expenses,
+        incomes,
+        currentDateKey: todayKey,
+        analysisSettings,
+        selectedMonthKey: budgetOverviewMonth,
+      }),
+    [analysisSettings, budgetOverviewMonth, budgets, expenses, incomes, todayKey],
+  );
   const balanceTrendModel = useMemo(
     () =>
       buildBalanceTrendModel({
@@ -384,6 +397,12 @@ export default function HomePage() {
     scheduleOccurrenceOptions.find((item) => item.originalDate === scheduleOccurrenceDate) ??
     scheduleOverrideRecords.find((item) => item.originalDate === scheduleOccurrenceDate) ??
     null;
+
+  useEffect(() => {
+    if (!budgetMonthlyOverview.monthOptions.length) return;
+    if (budgetMonthlyOverview.selectedMonthKey === budgetOverviewMonth) return;
+    setBudgetOverviewMonth(budgetMonthlyOverview.selectedMonthKey);
+  }, [budgetMonthlyOverview.monthOptions.length, budgetMonthlyOverview.selectedMonthKey, budgetOverviewMonth]);
 
   useEffect(() => {
     if (displayedTab !== "cashflow") {
@@ -1712,88 +1731,194 @@ export default function HomePage() {
 
               <section className="panel-card panel-frame budget-list-panel">
                 <div className="panel-heading">
-                  <h2>Bloques activos y seguimiento</h2>
-                  <p>El sistema compara cada bloque con los gastos reales de sus categorias y deja aparte lo no presupuestado.</p>
+                  <h2>Asignacion mensual por categoria</h2>
+                  <p>Revisa cuanto ingreso del mes ya esta asignado a categorias y como se compara cada una contra el gasto real.</p>
                 </div>
 
-                <div className="budget-inline-summary">
-                  <article className="summary-card">
-                    <span>Bloques activos hoy</span>
-                    <strong>{budgetComparisonModel.summary.activeBudgetCount}</strong>
-                  </article>
-                  <article className="summary-card">
-                    <span>No presupuestado este mes</span>
-                    <strong>{money(budgetComparisonModel.summary.unbudgetedCurrent, "USD")}</strong>
-                  </article>
-                </div>
+                <div className="budget-monthly-shell">
+                  <div className="budget-monthly-toolbar">
+                    <label className="history-control budget-month-control">
+                      <span className="history-label">Mes a revisar</span>
+                      <select
+                        name="budgetOverviewMonth"
+                        onChange={(event) => startTransition(() => setBudgetOverviewMonth(event.target.value))}
+                        value={budgetMonthlyOverview.selectedMonthKey}
+                      >
+                        {budgetMonthlyOverview.monthOptions.map((month) => (
+                          <option key={month.key} value={month.key}>
+                            {month.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
 
-                {budgetComparisonModel.currentBudgets.length ? (
-                  <div className="budget-card-grid">
-                    {budgetComparisonModel.currentBudgets.map((budget) => (
-                      <article className="budget-card" key={budget.id}>
-                        <div className="budget-card-top">
-                          <div>
-                            <p className="budget-card-eyebrow">{budget.statusLabel}</p>
-                            <h3>{budget.name || "Sin nombre"}</h3>
-                            <p className="budget-card-period">{budget.rangeLabel}</p>
-                          </div>
-                          <MantineBadge color={getBudgetStatusColor(budget.status)} radius="sm" size="lg" variant="light">
-                            {budget.frequency}
-                          </MantineBadge>
-                        </div>
-
-                        <div className="budget-card-metrics">
-                          <div>
-                            <span>Presupuestado</span>
-                            <strong>{money(budget.plannedAmount, budget.currency)}</strong>
-                          </div>
-                          <div>
-                            <span>Real</span>
-                            <strong>{money(budget.actualAmount, budget.currency)}</strong>
-                          </div>
-                          <div>
-                            <span>{budget.differenceAmount >= 0 ? "Restante" : "Sobregasto"}</span>
-                            <strong>{money(Math.abs(budget.differenceAmount), budget.currency)}</strong>
-                          </div>
-                        </div>
-
-                        <div className="budget-progress-shell">
-                          <div className="budget-progress-copy">
-                            <span>Uso del bloque</span>
-                            <strong>{Math.round(getBudgetUsagePercent(budget))}%</strong>
-                          </div>
-                          <Progress
-                            color={budget.differenceAmount >= 0 ? "teal" : "orange"}
-                            radius="xl"
-                            size="md"
-                            value={getBudgetUsagePercent(budget)}
-                          />
-                        </div>
-
-                        <p className="budget-card-schedule">{budget.scheduleLabel}</p>
-
-                        <div className="budget-chip-row">
-                          {(budget.linkedCategories ?? []).map((category) => (
-                            <span className="budget-category-chip" key={`${budget.id}-${category}`}>
-                              {category}
-                            </span>
-                          ))}
-                        </div>
-
-                        <div className="table-actions">
-                          <MantineButton onClick={() => editBudget(budget.id)} size="xs" variant="default">
-                            Modificar
-                          </MantineButton>
-                          <MantineButton color="red" onClick={() => deleteBudget(budget.id)} size="xs" variant="light">
-                            Quitar
-                          </MantineButton>
-                        </div>
-                      </article>
-                    ))}
+                    <div className="budget-monthly-context">
+                      <strong>{budgetMonthlyOverview.monthLabel}</strong>
+                      <span>{budgetMonthlyOverview.rangeLabel}</span>
+                    </div>
                   </div>
-                ) : (
-                  <p className="muted-text">Todavia no hay bloques de presupuesto. Crea el primero para empezar a comparar plan versus realidad.</p>
-                )}
+
+                  <p className="budget-monthly-note">
+                    Se muestran solo categorias con movimientos reales en el mes seleccionado. Si un bloque cubre varias categorias,
+                    el monto se reparte entre ellas en esta vista.
+                  </p>
+
+                  <div className="budget-monthly-summary">
+                    <article className="summary-card summary-card-balance">
+                      <span>Ingreso total del mes</span>
+                      <strong>{money(budgetMonthlyOverview.summary.totalIncome, "USD")}</strong>
+                      <p className="summary-card-detail">
+                        Base usada para calcular los porcentajes presupuestados y reales del mes.
+                      </p>
+                    </article>
+
+                    <article className="summary-card summary-card-soft">
+                      <span>Presupuesto ya asociado</span>
+                      <strong>{money(budgetMonthlyOverview.summary.associatedBudgetTotal, "USD")}</strong>
+                      <p className="summary-card-detail">
+                        {formatPercentLabel(budgetMonthlyOverview.summary.associatedBudgetShare)} del ingreso ya fue repartido entre categorias.
+                      </p>
+                    </article>
+
+                    <article
+                      className={
+                        budgetMonthlyOverview.summary.unassignedAmount >= 0
+                          ? "summary-card summary-card-positive"
+                          : "summary-card summary-card-warning"
+                      }
+                    >
+                      <span>{budgetMonthlyOverview.summary.unassignedAmount >= 0 ? "Falta por asociar" : "Sobreasignado"}</span>
+                      <strong>{money(Math.abs(budgetMonthlyOverview.summary.unassignedAmount), "USD")}</strong>
+                      <p className="summary-card-detail">
+                        {budgetMonthlyOverview.summary.unassignedAmount >= 0
+                          ? "Ingreso del mes que todavia no esta cubierto por categorias presupuestadas."
+                          : "El presupuesto asociado a categorias supera los ingresos de este mes."}
+                      </p>
+                    </article>
+                  </div>
+
+                  {budgetMonthlyOverview.categories.length ? (
+                    <div className="budget-monthly-category-grid">
+                      {budgetMonthlyOverview.categories.map((category) => (
+                        <article
+                          className={
+                            category.hasBudget
+                              ? category.actualAmount > category.plannedAmount
+                                ? "budget-monthly-category-card budget-monthly-category-card-warning"
+                                : "budget-monthly-category-card"
+                              : "budget-monthly-category-card budget-monthly-category-card-unassigned"
+                          }
+                          key={category.key}
+                        >
+                          <div className="budget-monthly-category-head">
+                            <div>
+                              <p className="budget-card-eyebrow">Categoria activa del mes</p>
+                              <h3>{category.name}</h3>
+                              <p className="budget-card-period">
+                                {category.budgetNames.length
+                                  ? summarizeOccurrenceGroupLabel(category.budgetNames.map((name) => ({ name })), "Bloque asociado")
+                                  : "Sin bloque presupuestado en este mes"}
+                              </p>
+                            </div>
+                            <MantineBadge
+                              color={category.hasBudget ? (category.actualAmount > category.plannedAmount ? "orange" : "teal") : "gray"}
+                              radius="sm"
+                              size="lg"
+                              variant="light"
+                            >
+                              {category.movementCount} mov.
+                            </MantineBadge>
+                          </div>
+
+                          <div className="budget-monthly-metrics">
+                            <div>
+                              <span>Presupuesto asociado</span>
+                              <strong>{money(category.plannedAmount, "USD")}</strong>
+                            </div>
+                            <div>
+                              <span>Real del mes</span>
+                              <strong>{money(category.actualAmount, "USD")}</strong>
+                            </div>
+                            <div>
+                              <span>% del ingreso presupuestado</span>
+                              <strong>{formatPercentLabel(category.plannedShare)}</strong>
+                            </div>
+                            <div>
+                              <span>% del ingreso real</span>
+                              <strong>{formatPercentLabel(category.actualShare)}</strong>
+                            </div>
+                          </div>
+
+                          <p className="budget-monthly-category-copy">
+                            {category.hasBudget
+                              ? category.actualAmount > category.plannedAmount
+                                ? `Va ${money(category.actualAmount - category.plannedAmount, "USD")} sobre lo asignado a esta categoria.`
+                                : `Todavia quedan ${money(category.plannedAmount - category.actualAmount, "USD")} dentro de lo asociado a esta categoria.`
+                              : "Esta categoria tuvo movimientos, pero aun no tiene presupuesto asociado dentro de este mes."}
+                          </p>
+
+                          <div className="budget-chip-row">
+                            {category.budgetNames.length ? (
+                              category.budgetNames.map((name) => (
+                                <span className="budget-category-chip" key={`${category.key}-${name}`}>
+                                  {name}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="budget-category-chip">Sin bloque</span>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted-text">No hay gastos ni reembolsos categorizados en este mes. Cuando existan movimientos, apareceran aqui sus porcentajes.</p>
+                  )}
+
+                  {budgetMonthlyOverview.monthlyBudgets.length ? (
+                    <div className="budget-monthly-blocks">
+                      <div className="panel-heading">
+                        <h3>Bloques configurados para {budgetMonthlyOverview.monthLabel}</h3>
+                        <p>Esta lista se mantiene para que sigas pudiendo modificar o quitar bloques desde la misma pestaña.</p>
+                      </div>
+
+                      <div className="budget-monthly-block-list">
+                        {budgetMonthlyOverview.monthlyBudgets.map((budget) => (
+                          <article className="budget-monthly-block-row" key={budget.id}>
+                            <div className="budget-monthly-block-copy">
+                              <strong>{budget.name || "Sin nombre"}</strong>
+                              <span>
+                                {money(budget.plannedAmount, budget.currency)} en {budget.periodCount}{" "}
+                                {budget.periodCount === 1 ? "periodo" : "periodos"} de este mes
+                              </span>
+                              <p>{budget.scheduleLabel}</p>
+                              <div className="budget-chip-row">
+                                {(budget.linkedCategories ?? []).map((category) => (
+                                  <span className="budget-category-chip" key={`${budget.id}-${category}`}>
+                                    {category}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+
+                            <div className="table-actions">
+                              <MantineButton onClick={() => editBudget(budget.id)} size="xs" variant="default">
+                                Modificar
+                              </MantineButton>
+                              <MantineButton color="red" onClick={() => deleteBudget(budget.id)} size="xs" variant="light">
+                                Quitar
+                              </MantineButton>
+                            </div>
+                          </article>
+                        ))}
+                      </div>
+                    </div>
+                  ) : budgets.length ? (
+                    <p className="muted-text">No hay bloques que arranquen en este mes. Cambia el selector para revisar otro periodo.</p>
+                  ) : (
+                    <p className="muted-text">Todavia no hay bloques de presupuesto. Crea el primero para empezar a distribuir ingresos por categoria.</p>
+                  )}
+                </div>
               </section>
             </section>
           ) : null}
@@ -2312,33 +2437,6 @@ function toggleBudgetCategory(category, setBudgetForm) {
       ? current.linkedCategories.filter((item) => item !== category)
       : sortLabelsAlphabetically([...current.linkedCategories, category]),
   }));
-}
-
-function getBudgetStatusColor(status) {
-  if (status === "active") {
-    return "teal";
-  }
-
-  if (status === "upcoming") {
-    return "yellow";
-  }
-
-  if (status === "ended") {
-    return "gray";
-  }
-
-  return "blue";
-}
-
-function getBudgetUsagePercent(budget) {
-  const plannedAmount = Number(budget?.plannedAmount) || 0;
-  const actualAmount = Math.max(0, Number(budget?.actualAmount) || 0);
-
-  if (plannedAmount <= 0) {
-    return actualAmount > 0 ? 100 : 0;
-  }
-
-  return Math.max(0, Math.min(100, (actualAmount / plannedAmount) * 100));
 }
 
 function BalanceTrendChart({ model, resolution, todayKey }) {
@@ -3520,6 +3618,168 @@ function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDa
   };
 }
 
+function buildBudgetMonthlyOverviewModel({ budgets, expenses, incomes = [], currentDateKey, analysisSettings, selectedMonthKey }) {
+  const settings = sanitizeAnalysisSettings(analysisSettings);
+  const chartSettings = getChartMonthSettings(settings);
+  const monthParts = getMonthRangePartsFromMonths(chartSettings.chartStartMonth, chartSettings.chartEndMonth);
+  const currentMonthKey = String(currentDateKey ?? localDate()).slice(0, 7);
+  const resolvedMonthKey = monthParts.some((part) => part.key === selectedMonthKey)
+    ? selectedMonthKey
+    : monthParts.find((part) => part.key === currentMonthKey)?.key ?? monthParts[0]?.key ?? currentMonthKey;
+  const monthStartKey = firstDayOfMonth(resolvedMonthKey);
+  const monthEndKey = lastDayOfMonth(resolvedMonthKey);
+  const plannedByCategory = Object.fromEntries(expenseCategories.map((category) => [category, 0]));
+  const actualByCategory = Object.fromEntries(expenseCategories.map((category) => [category, 0]));
+  const movementCountByCategory = Object.fromEntries(expenseCategories.map((category) => [category, 0]));
+  const budgetNamesByCategory = Object.fromEntries(expenseCategories.map((category) => [category, new Set()]));
+  const monthlyBudgets = [];
+  let totalIncome = 0;
+  let totalActual = 0;
+  let associatedBudgetTotal = 0;
+
+  for (const budget of budgets) {
+    const monthlyPeriods = buildBudgetPeriods({ budget, displayEnd: monthEndKey }).filter((period) => period.monthKey === resolvedMonthKey);
+    if (!monthlyPeriods.length) continue;
+
+    const plannedAmount = monthlyPeriods.reduce((sum, period) => sum + period.plannedAmount, 0);
+    const linkedCategories = sortLabelsAlphabetically(
+      [...new Set((budget.linkedCategories ?? []).filter((category) => expenseCategories.includes(String(category ?? ""))))].map(String),
+    );
+
+    monthlyBudgets.push({
+      currency: budget.currency ?? "USD",
+      frequency: budget.frequency ?? "Mensual",
+      id: budget.id,
+      linkedCategories,
+      name: budget.name ?? "",
+      periodCount: monthlyPeriods.length,
+      plannedAmount,
+      scheduleLabel: buildBudgetScheduleLabel(budget),
+    });
+
+    associatedBudgetTotal += plannedAmount;
+
+    if (!linkedCategories.length) {
+      continue;
+    }
+
+    const distributedAmount = plannedAmount / linkedCategories.length;
+
+    for (const category of linkedCategories) {
+      plannedByCategory[category] += distributedAmount;
+      budgetNamesByCategory[category].add(budget.name || "Sin nombre");
+    }
+  }
+
+  for (const expense of expenses) {
+    const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
+    const occurrenceDates = buildRecurringDates({
+      startDate: expense.movementDate ?? expense.date,
+      frequency: expense.frequency,
+      endDate: expense.endDate,
+      isRecurringIndefinite: expense.isRecurringIndefinite,
+      displayEnd: monthEndKey,
+    });
+
+    for (const date of occurrenceDates) {
+      if (String(date).slice(0, 7) !== resolvedMonthKey) continue;
+
+      const amount = Number(expense.amount) || 0;
+      actualByCategory[category] += amount;
+      movementCountByCategory[category] += 1;
+      totalActual += amount;
+    }
+  }
+
+  for (const income of incomes) {
+    const occurrences = buildIncomeOccurrenceEntries({
+      income,
+      displayEnd: monthEndKey,
+    });
+
+    for (const occurrence of occurrences) {
+      const date = occurrence.date;
+      if (String(date).slice(0, 7) !== resolvedMonthKey) continue;
+
+      const amount = Number(income.amount) || 0;
+
+      if (income.isReimbursement) {
+        const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
+        actualByCategory[category] -= amount;
+        movementCountByCategory[category] += 1;
+        totalActual -= amount;
+        continue;
+      }
+
+      totalIncome += amount;
+    }
+  }
+
+  const categories = expenseCategories
+    .filter((category) => movementCountByCategory[category] > 0)
+    .map((category) => ({
+      actualAmount: actualByCategory[category],
+      actualShare: resolveIncomeSharePercent(actualByCategory[category], totalIncome),
+      budgetNames: sortLabelsAlphabetically(Array.from(budgetNamesByCategory[category])),
+      hasBudget: plannedByCategory[category] > 0,
+      key: category,
+      movementCount: movementCountByCategory[category],
+      name: category,
+      plannedAmount: plannedByCategory[category],
+      plannedShare: resolveIncomeSharePercent(plannedByCategory[category], totalIncome),
+    }))
+    .sort((left, right) => {
+      if (right.actualAmount !== left.actualAmount) {
+        return right.actualAmount - left.actualAmount;
+      }
+
+      if (right.plannedAmount !== left.plannedAmount) {
+        return right.plannedAmount - left.plannedAmount;
+      }
+
+      return compareSortValues(left.name, right.name, "asc");
+    });
+
+  monthlyBudgets.sort((left, right) => {
+    const amountResult = right.plannedAmount - left.plannedAmount;
+    if (amountResult !== 0) return amountResult;
+    return compareSortValues(left.name, right.name, "asc");
+  });
+
+  const unassignedAmount = totalIncome - associatedBudgetTotal;
+
+  return {
+    categories,
+    monthLabel: formatMonthLabel(resolvedMonthKey),
+    monthOptions: monthParts.map((part) => ({
+      key: part.key,
+      label: part.fullLabel,
+    })),
+    monthlyBudgets,
+    rangeLabel: `${formatDateLabel(monthStartKey)} - ${formatDateLabel(monthEndKey)}`,
+    selectedMonthKey: resolvedMonthKey,
+    summary: {
+      associatedBudgetShare: resolveIncomeSharePercent(associatedBudgetTotal, totalIncome),
+      associatedBudgetTotal,
+      categoryCount: categories.length,
+      totalActual,
+      totalIncome,
+      unassignedAmount,
+    },
+  };
+}
+
+function resolveIncomeSharePercent(value, totalIncome) {
+  const numericValue = Number(value) || 0;
+  const numericIncome = Number(totalIncome) || 0;
+
+  if (!numericIncome) {
+    return 0;
+  }
+
+  return (numericValue / numericIncome) * 100;
+}
+
 function buildBudgetPeriods({ budget, displayEnd }) {
   const periods = buildRecurringDates({
     startDate: budget.startDate,
@@ -4370,6 +4630,19 @@ function formatDaysUntilIncome(days) {
 
 function formatCompactCurrency(value) {
   return formatCompactMoneyAmount(value, "USD");
+}
+
+function formatPercentLabel(value) {
+  const numericValue = Number(value) || 0;
+
+  if (Math.abs(numericValue) < 0.05) {
+    return "0%";
+  }
+
+  return `${new Intl.NumberFormat("es-CL", {
+    maximumFractionDigits: 1,
+    minimumFractionDigits: Math.abs(numericValue % 1) < 0.05 ? 0 : 1,
+  }).format(numericValue)}%`;
 }
 
 function formatMonthLabel(monthKey) {
