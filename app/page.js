@@ -1316,7 +1316,12 @@ export default function HomePage() {
       <section className="topbar topbar-hero">
         <div className="topbar-copy">
           <p className="eyebrow">Flujo de caja personal</p>
-          <h1>Dinerito</h1>
+          <div className="brand-lockup">
+            <span aria-hidden="true" className="brand-mark">
+              <WingedMoneyIcon />
+            </span>
+            <h1>Dinerito</h1>
+          </div>
           <div className="topbar-meta">
             <span className="hero-chip">{draftRecordCount} registros proyectados</span>
           </div>
@@ -2546,6 +2551,42 @@ function toggleBudgetCategory(category, setBudgetForm) {
       ? current.linkedCategories.filter((item) => item !== category)
       : sortLabelsAlphabetically([...current.linkedCategories, category]),
   }));
+}
+
+function WingedMoneyIcon() {
+  return (
+    <svg fill="none" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+      <path
+        d="M17 22C11.8 18.9 8.4 15.3 6.5 11.2C11.7 11.7 16 13.6 19.6 17.1C18.8 18.5 17.9 20.1 17 22Z"
+        fill="#E7EEF6"
+      />
+      <path
+        d="M15.9 28.8C10.5 27.7 6.4 25.3 3.5 21.5C8.4 20.7 12.9 21.2 17 23.1C16.7 24.9 16.3 26.8 15.9 28.8Z"
+        fill="#D5E1EF"
+      />
+      <path
+        d="M47 22C52.2 18.9 55.6 15.3 57.5 11.2C52.3 11.7 48 13.6 44.4 17.1C45.2 18.5 46.1 20.1 47 22Z"
+        fill="#E7EEF6"
+      />
+      <path
+        d="M48.1 28.8C53.5 27.7 57.6 25.3 60.5 21.5C55.6 20.7 51.1 21.2 47 23.1C47.3 24.9 47.7 26.8 48.1 28.8Z"
+        fill="#D5E1EF"
+      />
+      <rect fill="url(#winged-money-body)" height="24" rx="7" width="36" x="14" y="20" />
+      <rect fill="#E9FFF1" height="16" opacity="0.85" rx="5" width="28" x="18" y="24" />
+      <circle cx="32" cy="32" fill="#14A05A" r="6.5" />
+      <path
+        d="M34.2 28.4C33.6 28.1 32.8 27.9 32 27.9C30.3 27.9 29.1 28.9 29.1 30.3C29.1 31.7 30.2 32.4 31.7 32.8L32.4 33C33.6 33.3 34.1 33.6 34.1 34.3C34.1 35.1 33.4 35.6 32.4 35.6C31.4 35.6 30.4 35.2 29.6 34.6L28.6 35.9C29.5 36.6 30.6 37 31.7 37.1V38.5H33V37C34.9 36.7 36.1 35.5 36.1 33.9C36.1 32.4 35.1 31.6 33.2 31.1L32.6 31C31.5 30.7 31 30.4 31 29.8C31 29.1 31.6 28.7 32.5 28.7C33.2 28.7 34 28.9 34.7 29.4L34.2 28.4Z"
+        fill="white"
+      />
+      <defs>
+        <linearGradient gradientUnits="userSpaceOnUse" id="winged-money-body" x1="14" x2="50" y1="20" y2="44">
+          <stop stopColor="#22C06F" />
+          <stop offset="1" stopColor="#0B8A4B" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
 }
 
 function BalanceTrendChart({ model, resolution, todayKey }) {
