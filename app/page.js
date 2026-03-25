@@ -417,7 +417,7 @@ export default function HomePage() {
     });
 
     return () => cancelAnimationFrame(frame);
-  }, [cashflowModel.dates.length, cashflowModel.todayKey, displayedTab]);
+  }, [cashflowModel.dates.length, cashflowModel.todayKey, cashflowResolution, displayedTab]);
 
   useEffect(() => {
     if (displayedTab !== "cashflow") {
