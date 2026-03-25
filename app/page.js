@@ -119,7 +119,6 @@ export default function HomePage() {
   const [editingBudgetId, setEditingBudgetId] = useState("");
   const [editingIncomeId, setEditingIncomeId] = useState("");
   const [editingAdjustmentId, setEditingAdjustmentId] = useState("");
-  const [showExpenseAdvanced, setShowExpenseAdvanced] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [dataError, setDataError] = useState("");
@@ -163,7 +162,6 @@ export default function HomePage() {
       setSettingsForm(defaultAnalysisSettings());
       setEditingIncomeId("");
       setEditingAdjustmentId("");
-      setShowExpenseAdvanced(false);
       setScheduleModalIncomeId("");
       setScheduleOccurrenceDate("");
       setScheduleAdjustedDate("");
@@ -271,7 +269,6 @@ export default function HomePage() {
       setEditingBudgetId("");
       setEditingIncomeId("");
       setEditingAdjustmentId("");
-      setShowExpenseAdvanced(false);
       setScheduleModalIncomeId("");
       setScheduleOccurrenceDate("");
       setScheduleAdjustedDate("");
@@ -629,7 +626,6 @@ export default function HomePage() {
 
     setExpenseForm(defaultExpenseForm());
     setEditingExpenseId("");
-    setShowExpenseAdvanced(false);
     setSaveState("idle");
     setDataError("");
     setSuccessMessage("");
@@ -767,7 +763,6 @@ export default function HomePage() {
       isRecurringIndefinite: Boolean(expense.isRecurringIndefinite),
     });
     setEditingExpenseId(expenseId);
-    setShowExpenseAdvanced(Boolean(expense.frequency && expense.frequency !== "Unico") || Boolean(expense.endDate) || Boolean(expense.isRecurringIndefinite));
     setActiveTab("expenses");
   };
 
@@ -1160,7 +1155,6 @@ export default function HomePage() {
     setEditingBudgetId("");
     setEditingIncomeId("");
     setEditingAdjustmentId("");
-    setShowExpenseAdvanced(false);
     setScheduleModalIncomeId("");
     setScheduleOccurrenceDate("");
     setScheduleAdjustedDate("");
@@ -1536,51 +1530,44 @@ export default function HomePage() {
                 </div>
 
                 <div className="expense-advanced-panel">
-                  <div className="expense-advanced-header">
-                    <button className="secondary-button" onClick={() => setShowExpenseAdvanced((current) => !current)} type="button">
-                      {showExpenseAdvanced ? "Ocultar programacion legacy" : "Mostrar programacion legacy"}
-                    </button>
-                    <p className="expense-advanced-copy">
-                      Usa esta opcion solo si quieres repetir automaticamente el mismo gasto. Para planificar tendencias, usa Presupuesto.
-                    </p>
-                  </div>
+                  <p className="expense-advanced-copy">
+                    Si quieres que este gasto se repita automaticamente, configuralo aqui. Para planificar tendencias por categoria, usa Presupuesto.
+                  </p>
 
-                  {showExpenseAdvanced ? (
-                    <div className="expense-legacy-box">
-                      <div className="expense-form-grid expense-advanced-grid">
-                        <label className="expense-field">
-                          Frecuencia:
-                          <select name="frequency" onChange={(e) => setExpenseForm((c) => ({ ...c, frequency: e.target.value }))} value={expenseForm.frequency}>
-                            {expenseFrequencies.map((frequency) => (
-                              <option key={frequency} value={frequency}>
-                                {frequency}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="expense-field">
-                          Fecha Fin (si aplica):
-                          <input
-                            disabled={expenseForm.isRecurringIndefinite}
-                            name="endDate"
-                            onChange={(e) => setExpenseForm((c) => ({ ...c, endDate: e.target.value }))}
-                            type="date"
-                            value={expenseForm.endDate}
-                          />
-                        </label>
-                      </div>
-
-                      <label className="expense-checkbox">
+                  <div className="expense-legacy-box">
+                    <div className="expense-form-grid expense-advanced-grid">
+                      <label className="expense-field">
+                        Frecuencia:
+                        <select name="frequency" onChange={(e) => setExpenseForm((c) => ({ ...c, frequency: e.target.value }))} value={expenseForm.frequency}>
+                          {expenseFrequencies.map((frequency) => (
+                            <option key={frequency} value={frequency}>
+                              {frequency}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      <label className="expense-field">
+                        Fecha Fin (si aplica):
                         <input
-                          checked={expenseForm.isRecurringIndefinite}
-                          name="isRecurringIndefinite"
-                          onChange={(e) => setExpenseForm((c) => ({ ...c, isRecurringIndefinite: e.target.checked, endDate: e.target.checked ? "" : c.endDate }))}
-                          type="checkbox"
+                          disabled={expenseForm.isRecurringIndefinite}
+                          name="endDate"
+                          onChange={(e) => setExpenseForm((c) => ({ ...c, endDate: e.target.value }))}
+                          type="date"
+                          value={expenseForm.endDate}
                         />
-                        Gasto recurrente sin fin
                       </label>
                     </div>
-                  ) : null}
+
+                    <label className="expense-checkbox">
+                      <input
+                        checked={expenseForm.isRecurringIndefinite}
+                        name="isRecurringIndefinite"
+                        onChange={(e) => setExpenseForm((c) => ({ ...c, isRecurringIndefinite: e.target.checked, endDate: e.target.checked ? "" : c.endDate }))}
+                        type="checkbox"
+                      />
+                      Gasto recurrente sin fin
+                    </label>
+                  </div>
                 </div>
 
                 <div className="button-row">
@@ -1592,7 +1579,6 @@ export default function HomePage() {
                     onClick={() => {
                       setExpenseForm(defaultExpenseForm());
                       setEditingExpenseId("");
-                      setShowExpenseAdvanced(false);
                     }}
                     type="button"
                   >
@@ -2561,7 +2547,7 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               dataKey="estimatedBalance"
               dot={false}
               name="Saldo final estimado"
-              stroke="#2f6b5f"
+              stroke="#111111"
               strokeWidth={3}
               type="linear"
             />
@@ -2570,7 +2556,7 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               dataKey="budgetBalance"
               dot={false}
               name="Saldo presupuestado a la fecha"
-              stroke="#2d6ca8"
+              stroke="#8a929d"
               strokeWidth={3}
               type="linear"
             />

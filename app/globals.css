@@ -1623,11 +1623,11 @@ button {
 }
 
 .legend-swatch.actual-balance {
-  background: #2f6b5f;
+  background: #111111;
 }
 
 .legend-swatch.budget-balance {
-  background: #2d6ca8;
+  background: #8a929d;
 }
 
 .chart-scroll-copy {
