@@ -99,6 +99,7 @@ export default function HomePage() {
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState("summary");
   const [cashflowResolution, setCashflowResolution] = useState("weekly");
+  const [balanceTrendResolution, setBalanceTrendResolution] = useState("daily");
   const [scheduleModalIncomeId, setScheduleModalIncomeId] = useState("");
   const [scheduleOccurrenceDate, setScheduleOccurrenceDate] = useState("");
   const [scheduleAdjustedDate, setScheduleAdjustedDate] = useState("");
@@ -2244,9 +2245,30 @@ export default function HomePage() {
           {displayedTab === "charts" ? (
             <section className="workspace-stack charts-stack">
               <section className="panel-card panel-frame chart-panel">
-                <div className="panel-heading">
-                  <h2>Saldos diarios</h2>
-                  <p>{balanceTrendModel.rangeLabel}</p>
+                <div className="chart-toolbar">
+                  <div className="panel-heading">
+                    <h2>Saldos diarios</h2>
+                    <p>{balanceTrendModel.rangeLabel}</p>
+                  </div>
+
+                  <div className="cashflow-resolution-shell">
+                    <MantineTabs
+                      classNames={{
+                        list: "cashflow-resolution-list",
+                        root: "cashflow-resolution-root",
+                        tab: "cashflow-resolution-tab",
+                      }}
+                      onChange={(value) => startTransition(() => setBalanceTrendResolution(value ?? "daily"))}
+                      value={balanceTrendResolution}
+                    >
+                      <MantineTabs.List>
+                        <MantineTabs.Tab value="daily">Diaria</MantineTabs.Tab>
+                        <MantineTabs.Tab value="weekly">Semanal</MantineTabs.Tab>
+                        <MantineTabs.Tab value="monthly">Mensual</MantineTabs.Tab>
+                      </MantineTabs.List>
+                    </MantineTabs>
+                    <span className="cashflow-resolution-note">{getBalanceTrendResolutionCopy(balanceTrendResolution)}</span>
+                  </div>
                 </div>
 
                 {balanceTrendModel.dailyPoints.length ? (
@@ -2255,8 +2277,8 @@ export default function HomePage() {
                       <span><i className="legend-swatch actual-balance" /> Saldo final estimado</span>
                       <span><i className="legend-swatch budget-balance" /> Saldo presupuestado a la fecha</span>
                     </div>
-                    <p className="chart-scroll-copy">Desliza lateralmente para recorrer todos los dias del periodo seleccionado.</p>
-                    <BalanceTrendChart model={balanceTrendModel} todayKey={todayKey} />
+                    <p className="chart-scroll-copy">{getBalanceTrendScrollCopy(balanceTrendResolution)}</p>
+                    <BalanceTrendChart model={balanceTrendModel} resolution={balanceTrendResolution} todayKey={todayKey} />
                   </>
                 ) : (
                   <p className="placeholder-copy">No hay datos suficientes para construir la serie diaria del periodo seleccionado.</p>
@@ -2319,10 +2341,13 @@ function getBudgetUsagePercent(budget) {
   return Math.max(0, Math.min(100, (actualAmount / plannedAmount) * 100));
 }
 
-function BalanceTrendChart({ model, todayKey }) {
+function BalanceTrendChart({ model, resolution, todayKey }) {
   if (!model?.dailyPoints?.length) return null;
 
-  const width = Math.max(960, model.dailyPoints.length * 18);
+  const axisTicks = useMemo(() => buildBalanceTrendTicks(model.dailyPoints, resolution), [model.dailyPoints, resolution]);
+  const width = useMemo(() => resolveBalanceTrendChartWidth(model.dailyPoints.length, resolution), [model.dailyPoints.length, resolution]);
+  const xTickFormatter = useMemo(() => (value) => formatBalanceTrendTick(value, resolution), [resolution]);
+  const minTickGap = resolution === "monthly" ? 10 : resolution === "weekly" ? 20 : 28;
 
   return (
     <div className="chart-sync-shell">
@@ -2348,9 +2373,11 @@ function BalanceTrendChart({ model, todayKey }) {
             <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" />
             <XAxis
               dataKey="date"
-              minTickGap={28}
+              interval={resolution === "daily" ? "preserveStartEnd" : 0}
+              minTickGap={minTickGap}
               tick={{ fill: "#5a6f88", fontSize: 11 }}
-              tickFormatter={formatDailyChartTick}
+              tickFormatter={xTickFormatter}
+              ticks={resolution === "daily" ? undefined : axisTicks}
             />
             <YAxis domain={model.yDomain} hide />
             <Tooltip content={<BalanceChartTooltip />} />
@@ -4360,10 +4387,19 @@ function formatMonthTick(monthKey) {
   return `${monthLabel} ${formatDateValue(date, "yy")}`;
 }
 
-function formatDailyChartTick(dateKey) {
+function formatBalanceTrendTick(dateKey, resolution = "daily") {
   if (!dateKey) return "";
   const date = parseDateKey(dateKey);
   if (!isValidDate(date)) return dateKey;
+
+  if (resolution === "monthly") {
+    return formatMonthTick(formatDateValue(date, "yyyy-MM"));
+  }
+
+  if (resolution === "weekly") {
+    return capitalizeLabel(formatDateValue(date, "dd MMM", { locale: spanishDateLocale }).replace(".", ""));
+  }
+
   const isMonthStart = date.getDate() === 1;
 
   return isMonthStart
@@ -4405,6 +4441,63 @@ function formatDateLabel(value) {
   const date = parseDateKey(value);
   if (!isValidDate(date)) return value;
   return formatDateValue(date, "P", { locale: spanishDateLocale });
+}
+
+function buildBalanceTrendTicks(points, resolution) {
+  if (!points?.length || resolution === "daily") return [];
+
+  const ticks = [];
+  let previousPeriodKey = "";
+
+  for (const point of points) {
+    const descriptor = getCashflowPeriodDescriptor(point.date, resolution);
+    if (!descriptor) continue;
+
+    if (descriptor.key !== previousPeriodKey) {
+      ticks.push(point.date);
+      previousPeriodKey = descriptor.key;
+    }
+  }
+
+  return ticks;
+}
+
+function resolveBalanceTrendChartWidth(pointCount, resolution) {
+  const safePointCount = Math.max(0, Number(pointCount) || 0);
+
+  if (resolution === "monthly") {
+    return Math.max(860, Math.round(safePointCount * 4));
+  }
+
+  if (resolution === "weekly") {
+    return Math.max(900, Math.round(safePointCount * 9));
+  }
+
+  return Math.max(960, safePointCount * 18);
+}
+
+function getBalanceTrendResolutionCopy(resolution) {
+  if (resolution === "weekly") {
+    return "El eje X destaca el inicio de cada semana, pero la curva sigue trazada con todos los dias.";
+  }
+
+  if (resolution === "monthly") {
+    return "El eje X destaca cada mes y comprime la vista, manteniendo intacto el detalle diario de la serie.";
+  }
+
+  return "Cada marca del eje X sigue el ritmo diario original del flujo proyectado.";
+}
+
+function getBalanceTrendScrollCopy(resolution) {
+  if (resolution === "weekly") {
+    return "Desliza lateralmente para recorrer la serie diaria con referencias semanales en el eje X.";
+  }
+
+  if (resolution === "monthly") {
+    return "Desliza lateralmente para recorrer la serie diaria comprimida, con referencias mensuales en el eje X.";
+  }
+
+  return "Desliza lateralmente para recorrer todos los dias del periodo seleccionado.";
 }
 
 function formatTimestampLabel(value) {

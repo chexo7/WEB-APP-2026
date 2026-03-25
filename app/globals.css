@@ -1419,6 +1419,14 @@ button {
   gap: 1rem;
 }
 
+.chart-toolbar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 .chart-legend {
   display: flex;
   flex-wrap: wrap;
@@ -2037,6 +2045,11 @@ button {
 
   .chart-sync-shell {
     grid-template-columns: 72px minmax(0, 1fr);
+  }
+
+  .chart-toolbar {
+    flex-direction: column;
+    align-items: stretch;
   }
 
   .income-schedule-record {
