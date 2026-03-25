@@ -924,7 +924,7 @@ export default function HomePage() {
 
     setSaveState("idle");
     setDataError("");
-    setSuccessMessage("Se guardo el ajuste puntual del calendario de pago en el borrador.");
+    setSuccessMessage("Se guardo el ajuste puntual del calendario de pago en la proyeccion activa.");
   };
 
   const toggleIncomeScheduleOverride = (incomeId, occurrenceDate) => {
@@ -957,7 +957,7 @@ export default function HomePage() {
 
     setSaveState("idle");
     setDataError("");
-    setSuccessMessage("Se actualizo el estado del ajuste puntual en el borrador.");
+    setSuccessMessage("Se actualizo el estado del ajuste puntual en la proyeccion activa.");
   };
 
   const editAdjustment = (adjustmentId) => {
@@ -1190,41 +1190,43 @@ export default function HomePage() {
         <div className="topbar-copy">
           <p className="eyebrow">Web App Flujo De Caja</p>
           <h1>Cash Flow Pulento</h1>
-          <p className="muted-text">Trabajas sobre un borrador local y solo guardas una nueva entrada cuando lo confirmas.</p>
+          <p className="muted-text">La base real se carga desde una entrada final y aqui trabajas la proyeccion activa antes de guardar la siguiente.</p>
           <div className="topbar-meta">
-            <span className="hero-chip">Version {selectedVersion ? selectedVersion.snapshotDate : "sin datos"}</span>
-            <span className="hero-chip hero-chip-strong">{draftRecordCount} registros en borrador</span>
+            <span className="hero-chip hero-chip-strong">Base real: {selectedVersion ? selectedVersion.snapshotDate : "sin datos"}</span>
+            <span className="hero-chip">{draftRecordCount} registros proyectados</span>
           </div>
         </div>
 
-        <div className="topbar-history">
-          <label className="history-control">
-            Ultimas 5 entradas
-            <select onChange={(event) => setSelectedVersionKey(event.target.value)} value={selectedVersionKey}>
-              {recentVersions.map((version) => (
-                <option key={version.key} value={version.key}>
-                  {labelVersion(version)}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+        <div className="topbar-side">
+          <div className="topbar-panel topbar-history">
+            <label className="history-control">
+              <span className="history-label">Entradas finales recientes</span>
+              <select onChange={(event) => setSelectedVersionKey(event.target.value)} value={selectedVersionKey}>
+                {recentVersions.map((version) => (
+                  <option key={version.key} value={version.key}>
+                    {labelVersion(version)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
-        <div className="topbar-actions">
-          <button
-            className={hasUnsavedChanges ? "status-chip pending action-chip" : "status-chip action-chip"}
-            disabled={!hasUnsavedChanges || saveState === "saving"}
-            onClick={handleGlobalSave}
-            type="button"
-          >
-            {saveState === "saving" ? "Guardando entrada..." : hasUnsavedChanges ? "Guardar nueva entrada" : "Sin cambios pendientes"}
-          </button>
+          <div className="topbar-panel topbar-actions">
+            <span className="user-chip">{user?.email}</span>
 
-          <span className="user-chip">{user?.email}</span>
+            <button
+              className={hasUnsavedChanges ? "status-chip pending action-chip action-chip-primary" : "status-chip action-chip action-chip-primary"}
+              disabled={!hasUnsavedChanges || saveState === "saving"}
+              onClick={handleGlobalSave}
+              type="button"
+            >
+              {saveState === "saving" ? "Guardando entrada final..." : hasUnsavedChanges ? "Guardar entrada final" : "Sin cambios pendientes"}
+            </button>
 
-          <button className="secondary-button action-chip" onClick={handleLogout} type="button">
-            Cerrar sesion
-          </button>
+            <button className="secondary-button action-chip action-chip-secondary" onClick={handleLogout} type="button">
+              Cerrar sesion
+            </button>
+          </div>
         </div>
       </section>
 
@@ -1253,9 +1255,9 @@ export default function HomePage() {
           {false ? <Paper className="save-bar" p="md" radius="lg" shadow="sm" withBorder>
             <div className="save-bar-copy">
               <p className="eyebrow">Guardado General</p>
-              <h2>Borrador activo</h2>
+              <h2>Proyeccion activa</h2>
               <Text c="dimmed" size="sm">
-                Todas las pestañas editan el mismo borrador. Guarda una sola vez cuando quieras confirmar los cambios.
+                Todas las pestanas editan la misma proyeccion. Guarda una sola vez cuando quieras dejar una nueva entrada final.
               </Text>
               <div className="save-bar-meta">
                 <span className="save-meta-chip">Version cargada: {selectedVersion ? labelVersion(selectedVersion) : "Sin historial"}</span>
@@ -1273,7 +1275,7 @@ export default function HomePage() {
                 Descartar
               </MantineButton>
               <MantineButton disabled={!hasUnsavedChanges} loading={saveState === "saving"} onClick={handleGlobalSave}>
-                Guardar cambios
+                Guardar entrada final
               </MantineButton>
             </Group>
           </Paper> : null}
@@ -1538,7 +1540,7 @@ export default function HomePage() {
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar entrada final.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -1720,7 +1722,7 @@ export default function HomePage() {
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar entrada final.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -1942,7 +1944,7 @@ export default function HomePage() {
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar entrada final.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -2038,7 +2040,7 @@ export default function HomePage() {
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar entrada final.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -2125,7 +2127,7 @@ export default function HomePage() {
 
                 <div className="button-row settings-button-row">
                   <button className="primary-button" type="submit">
-                    Aplicar al borrador
+                    Aplicar a proyeccion
                   </button>
                   <button
                     className="secondary-button"
@@ -2140,7 +2142,7 @@ export default function HomePage() {
                   <button className="secondary-button" onClick={discardChanges} type="button">
                     Descartar cambios
                   </button>
-                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar cambios.</p>
+                  <p className="save-hint-copy">El guardado final se hace arriba, desde Guardar entrada final.</p>
                 </div>
 
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
@@ -2958,7 +2960,7 @@ function buildExpenseImportSuccessMessage(createdCount, updatedCount) {
     return "No hubo cambios para aplicar desde el JSON.";
   }
 
-  return `${parts.join(" y ")} aplicad${parts.length === 1 && createdCount === 1 && !updatedCount ? "o" : "os"} desde el JSON al borrador.`;
+  return `${parts.join(" y ")} aplicad${parts.length === 1 && createdCount === 1 && !updatedCount ? "o" : "os"} desde el JSON a la proyeccion activa.`;
 }
 
 function sortCollection(items, sortState, valueGetter) {

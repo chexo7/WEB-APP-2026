@@ -239,65 +239,84 @@ button {
 
 .topbar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.64fr) minmax(420px, 0.72fr);
-  gap: 1.2rem;
-  align-items: center;
+  grid-template-columns: minmax(0, 1.18fr) minmax(360px, 0.92fr);
+  gap: 1.25rem;
+  align-items: stretch;
   padding: 1.6rem;
 }
 
 .topbar-hero {
   background:
     radial-gradient(circle at top left, rgba(77, 147, 228, 0.16), transparent 34%),
-    linear-gradient(135deg, rgba(255, 255, 255, 0.98) 0%, rgba(241, 247, 254, 0.96) 100%);
+    linear-gradient(135deg, rgba(255, 255, 255, 0.99) 0%, rgba(241, 247, 254, 0.96) 100%);
+  overflow: hidden;
 }
 
 .topbar-copy {
   display: grid;
-  align-content: start;
-  gap: 1rem;
+  align-content: center;
+  gap: 0.95rem;
+  padding-right: 0.75rem;
 }
 
 .topbar-copy h1 {
-  font-size: clamp(2rem, 4vw, 3rem);
+  max-width: 12ch;
+  font-size: clamp(2.3rem, 4vw, 3.3rem);
   font-weight: 500;
   color: #0a67f2;
 }
 
 .topbar-copy .muted-text {
-  max-width: 620px;
-  font-size: 0.98rem;
+  max-width: 54ch;
+  font-size: 1rem;
+  line-height: 1.58;
 }
 
 .topbar-meta,
 .save-bar-meta {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.65rem;
+  gap: 0.7rem;
 }
 
 .hero-chip,
 .save-meta-chip {
   display: inline-flex;
   align-items: center;
-  min-height: 34px;
-  padding: 0.5rem 0.8rem;
-  border: 1px solid rgba(36, 88, 143, 0.16);
+  min-height: 38px;
+  padding: 0.56rem 0.92rem;
+  border: 1px solid rgba(36, 88, 143, 0.18);
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.76);
+  background: rgba(255, 255, 255, 0.82);
   color: var(--accent-strong);
-  font-size: 0.75rem;
+  font-size: 0.77rem;
   font-weight: 700;
   letter-spacing: 0.03em;
 }
 
 .hero-chip-strong {
+  border-color: rgba(22, 62, 104, 0.22);
   background: rgba(36, 88, 143, 0.1);
 }
 
-.topbar-history {
+.topbar-side {
   display: grid;
+  gap: 0.85rem;
   align-content: center;
-  align-self: center;
+}
+
+.topbar-panel {
+  display: grid;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid rgba(39, 63, 92, 0.14);
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.64);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
+
+.topbar-history {
+  align-content: start;
 }
 
 .save-feedback-shell {
@@ -334,41 +353,55 @@ button {
 
 .topbar-actions {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  align-self: center;
-  gap: 0.7rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    "user user"
+    "save logout";
+  gap: 0.75rem;
+  align-items: stretch;
 }
 
 .history-control {
   min-width: 0;
-  align-content: center;
-  padding: 0.25rem 0;
+  align-content: start;
+  padding: 0;
   color: #102235;
-  font-size: 0.88rem;
+  font-size: 0.82rem;
   font-weight: 800;
   letter-spacing: 0.01em;
   text-transform: none;
 }
 
+.history-label {
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .history-control select {
-  min-height: 58px;
+  min-height: 56px;
+  padding-right: 2.8rem;
+  font-size: 0.96rem;
+  font-weight: 700;
 }
 
 .status-chip,
 .user-chip {
-  min-height: 58px;
+  min-height: 56px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 0.78rem 0.95rem;
+  padding: 0.82rem 1rem;
   border: 1px solid rgba(39, 63, 92, 0.22);
   border-radius: var(--radius-control);
   background: rgba(255, 255, 255, 0.96);
-  font-size: 0.76rem;
+  font-size: 0.77rem;
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.8);
   text-align: center;
 }
 
@@ -379,19 +412,28 @@ button {
 }
 
 .action-chip {
-  min-height: 58px;
+  min-height: 56px;
   border-radius: var(--radius-control);
+}
+
+.action-chip-primary {
+  grid-area: save;
+}
+
+.action-chip-secondary {
+  grid-area: logout;
+  min-width: 152px;
 }
 
 .topbar-actions .secondary-button,
 .topbar-actions .status-chip {
   width: 100%;
-  min-height: 58px;
-  padding: 0.78rem 0.95rem;
+  min-height: 56px;
+  padding: 0.82rem 1rem;
   border: 1px solid rgba(39, 63, 92, 0.22);
   border-radius: var(--radius-control);
   background: rgba(255, 255, 255, 0.96);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.8);
 }
 
 .topbar-actions .status-chip.pending:not(:disabled) {
@@ -408,6 +450,12 @@ button {
 }
 
 .user-chip {
+  grid-area: user;
+  justify-content: flex-start;
+  overflow-wrap: anywhere;
+  font-size: 0.88rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   text-transform: none;
 }
 
@@ -1939,6 +1987,10 @@ button {
     grid-template-columns: 1fr;
   }
 
+  .topbar-copy {
+    padding-right: 0;
+  }
+
   .summary-hero-heading {
     grid-template-columns: 1fr;
   }
@@ -1949,6 +2001,14 @@ button {
 
   .topbar-actions {
     grid-template-columns: 1fr;
+    grid-template-areas:
+      "user"
+      "save"
+      "logout";
+  }
+
+  .action-chip-secondary {
+    min-width: 0;
   }
 
   .history-control,
