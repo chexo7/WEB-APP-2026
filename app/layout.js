@@ -4,8 +4,8 @@ import { MantineProvider } from "@mantine/core";
 import { mantineTheme } from "@/lib/mantine-theme";
 
 export const metadata = {
-  title: "WEB-APP-2026",
-  description: "Panel Next.js conectado a Firebase Realtime Database",
+  title: "Dinerito",
+  description: "Dinerito, panel personal para seguir ingresos, gastos y flujo de caja.",
 };
 
 export default function RootLayout({ children }) {

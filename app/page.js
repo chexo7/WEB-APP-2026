@@ -95,7 +95,7 @@ export default function HomePage() {
   const [authError, setAuthError] = useState("");
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState("summary");
-  const [cashflowResolution, setCashflowResolution] = useState("weekly");
+  const [cashflowResolution, setCashflowResolution] = useState("daily");
   const [balanceTrendResolution, setBalanceTrendResolution] = useState("daily");
   const [budgetOverviewMonth, setBudgetOverviewMonth] = useState(localDate().slice(0, 7));
   const [scheduleModalIncomeId, setScheduleModalIncomeId] = useState("");
@@ -137,6 +137,37 @@ export default function HomePage() {
   const incomeNameWarning = useMemo(() => getFirebaseTextWarning(incomeForm.name), [incomeForm.name]);
   const displayedTab = useDeferredValue(activeTab);
   const isTabTransitionPending = displayedTab !== activeTab;
+  const centerCashflowOnCurrentPeriod = (behavior = "auto") => {
+    const mainScroller = cashflowScrollRef.current;
+    const topScroller = cashflowTopScrollRef.current;
+    const target = currentDayColumnRef.current;
+
+    if (!mainScroller || !target) {
+      return false;
+    }
+
+    const containerRect = mainScroller.getBoundingClientRect();
+    const targetRect = target.getBoundingClientRect();
+    const targetCenter = mainScroller.scrollLeft + (targetRect.left - containerRect.left) + targetRect.width / 2;
+    const maxScrollLeft = Math.max(0, mainScroller.scrollWidth - mainScroller.clientWidth);
+    const nextLeft = Math.min(maxScrollLeft, Math.max(0, targetCenter - mainScroller.clientWidth / 2));
+
+    if (behavior === "auto") {
+      mainScroller.scrollLeft = nextLeft;
+
+      if (topScroller) {
+        topScroller.scrollLeft = nextLeft;
+      }
+    } else {
+      mainScroller.scrollTo({ left: nextLeft, behavior });
+
+      if (topScroller) {
+        topScroller.scrollTo({ left: nextLeft, behavior });
+      }
+    }
+
+    return true;
+  };
 
   useEffect(() => {
     const auth = getFirebaseAuth();
@@ -379,6 +410,8 @@ export default function HomePage() {
 
     return cashflowModelCache.monthly ?? buildCashflowResolutionModel(cashflowBaseModel, "monthly");
   }, [cashflowBaseModel, cashflowModelCache, cashflowResolution, weeklyCashflowModel]);
+  const cashflowFirstDateKey = cashflowModel.dates[0]?.key ?? "";
+  const cashflowLastDateKey = cashflowModel.dates[cashflowModel.dates.length - 1]?.key ?? "";
   const draftRecordCount = expenses.length + budgets.length + incomes.length + adjustments.length;
   const scheduleModalIncome = useMemo(
     () => incomes.find((income) => income.id === scheduleModalIncomeId) ?? incomeEntries.find((income) => income.id === scheduleModalIncomeId) ?? null,
@@ -406,18 +439,34 @@ export default function HomePage() {
       return;
     }
 
-    const container = cashflowScrollRef.current;
-    const target = currentDayColumnRef.current;
+    const frameIds = [];
+    const timeoutIds = [];
 
-    if (!container || !target) return;
+    const queueCentering = () => {
+      let attempts = 0;
 
-    const frame = requestAnimationFrame(() => {
-      const nextLeft = Math.max(0, target.offsetLeft - container.clientWidth / 2 + target.clientWidth / 2);
-      container.scrollTo({ left: nextLeft, behavior: "smooth" });
-    });
+      const attemptCentering = () => {
+        attempts += 1;
 
-    return () => cancelAnimationFrame(frame);
-  }, [cashflowModel.dates.length, cashflowModel.todayKey, cashflowResolution, displayedTab]);
+        if (centerCashflowOnCurrentPeriod("auto") || attempts >= 4) {
+          return;
+        }
+
+        frameIds.push(requestAnimationFrame(attemptCentering));
+      };
+
+      frameIds.push(requestAnimationFrame(attemptCentering));
+    };
+
+    queueCentering();
+    timeoutIds.push(window.setTimeout(() => centerCashflowOnCurrentPeriod("auto"), 60));
+    timeoutIds.push(window.setTimeout(() => centerCashflowOnCurrentPeriod("auto"), 180));
+
+    return () => {
+      frameIds.forEach((frameId) => cancelAnimationFrame(frameId));
+      timeoutIds.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, [cashflowFirstDateKey, cashflowLastDateKey, cashflowModel.todayKey, cashflowResolution, displayedTab]);
 
   useEffect(() => {
     if (displayedTab !== "cashflow") {
@@ -1266,8 +1315,8 @@ export default function HomePage() {
     <main className="app-shell">
       <section className="topbar topbar-hero">
         <div className="topbar-copy">
-          <p className="eyebrow">Web App Flujo De Caja</p>
-          <h1>Cash Flow Pulento</h1>
+          <p className="eyebrow">Flujo de caja personal</p>
+          <h1>Dinerito</h1>
           <div className="topbar-meta">
             <span className="hero-chip">{draftRecordCount} registros proyectados</span>
           </div>
@@ -2328,7 +2377,7 @@ export default function HomePage() {
                       tab: "cashflow-resolution-tab",
                     }}
                     keepMounted={false}
-                    onChange={(value) => setCashflowResolution(value ?? "weekly")}
+                    onChange={(value) => setCashflowResolution(value ?? "daily")}
                     value={cashflowResolution}
                     variant="pills"
                   >
@@ -2340,9 +2389,9 @@ export default function HomePage() {
                   </MantineTabs>
                   <span className="cashflow-resolution-note">
                     {cashflowResolution === "weekly"
-                      ? "Predeterminado. La semana inicia el lunes."
+                      ? "La semana inicia el lunes."
                       : cashflowResolution === "daily"
-                        ? "Cada columna representa un dia."
+                        ? "Vista predeterminada. Cada columna representa un dia."
                         : "Cada columna representa un mes."}
                   </span>
                 </div>
@@ -4533,7 +4582,7 @@ function getCashflowResolutionCopy(resolution) {
     return "Vista mensual resumida del rango configurado. Ideal para revisar tendencias largas sin perder contexto.";
   }
 
-  return "Vista semanal del rango configurado. Por defecto cada semana comienza en lunes para que la navegacion sea mas liviana y fluida.";
+  return "Vista semanal del rango configurado. Cada semana comienza en lunes para que la navegacion sea mas liviana y fluida.";
 }
 
 function makeCashflowRow(key, label, values, details, className = "") {
