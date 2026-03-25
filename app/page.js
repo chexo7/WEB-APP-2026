@@ -1286,24 +1286,6 @@ export default function HomePage() {
         <div className="tab-panel">
           {displayedTab === "summary" ? (
             <section className="summary-panel">
-              <section className="panel-card panel-frame summary-hero-panel">
-                <div className="panel-heading summary-hero-heading">
-                  <div>
-                    <p className="eyebrow">Vista General</p>
-                    <h2>Panorama actual del flujo</h2>
-                    <p>Empieza aqui para revisar saldo, ingresos y gastos proyectados para los proximos dias antes de entrar al detalle operativo.</p>
-                  </div>
-                  <div className="summary-hero-pills">
-                    <span className="summary-pill">Saldo hoy: {money(summaryIndicators.todayBalance, "USD")}</span>
-                    <span className="summary-pill">
-                      {summaryIndicators.nextIncome
-                        ? `Proximo ingreso: ${formatDateLabel(summaryIndicators.nextIncome.date)}`
-                        : "Sin proximo ingreso programado"}
-                    </span>
-                  </div>
-                </div>
-              </section>
-
               <div className="summary-grid">
                 <article className="summary-card summary-card-balance">
                   <span>Saldo al dia de hoy</span>
