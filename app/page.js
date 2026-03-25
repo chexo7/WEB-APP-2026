@@ -5,6 +5,7 @@ import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, P
 import {
   addDays as addCalendarDays,
   addMonths as addCalendarMonths,
+  differenceInCalendarDays,
   eachDayOfInterval,
   eachMonthOfInterval,
   endOfMonth as getEndOfMonth,
@@ -28,7 +29,7 @@ import IncomeScheduleModal from "@/components/income-schedule-modal";
 import ReconciliationTable from "@/components/reconciliation-table";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 import { getFirebaseTextWarning, sanitizeFirebaseCompatibleText } from "@/lib/firebase-safe";
-import { formatCompactMoneyAmount, formatMoneyAmount, sumMoneyValues } from "@/lib/money";
+import { formatCompactMoneyAmount, formatMoneyAmount } from "@/lib/money";
 import { buildRecurringDatesWithRRule } from "@/lib/recurrence";
 import { buildExpenseImportMatchKey, parseSchwabPostedExpenseTransactions } from "@/lib/schwab-expense-import";
 import {
@@ -308,36 +309,20 @@ export default function HomePage() {
     [adjustmentEntries, adjustmentSort],
   );
 
-  const reimbursementTotal = useMemo(
-    () => sumMoneyValues(incomes.filter((item) => item.isReimbursement).map((item) => item.amount), "USD"),
-    [incomes],
-  );
-  const incomeTotal = useMemo(
-    () => sumMoneyValues(incomes.filter((item) => !item.isReimbursement).map((item) => item.amount), "USD"),
-    [incomes],
-  );
-  const adjustmentTotal = useMemo(() => sumMoneyValues(adjustments.map((item) => item.amount), "USD"), [adjustments]);
-  const expenseCategoryTotals = useMemo(() => {
-    const totals = Object.fromEntries(expenseCategories.map((category) => [category, 0]));
-
-    for (const expense of expenses) {
-      const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
-      totals[category] = (totals[category] ?? 0) + (Number(expense.amount) || 0);
-    }
-
-    for (const income of incomes) {
-      if (!income.isReimbursement) continue;
-      const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
-      totals[category] = (totals[category] ?? 0) - (Number(income.amount) || 0);
-    }
-
-    return totals;
-  }, [expenses, incomes]);
-  const expenseTotal = useMemo(() => sumMoneyValues(Object.values(expenseCategoryTotals), "USD"), [expenseCategoryTotals]);
-  const balance = useMemo(() => sumMoneyValues([incomeTotal, -expenseTotal, adjustmentTotal], "USD"), [adjustmentTotal, expenseTotal, incomeTotal]);
   const hasUnsavedChanges = JSON.stringify(sanitizeWorkspace(draft)) !== JSON.stringify(sanitizeWorkspace(selectedVersion?.payload));
   const todayKey = localDate();
   const analysisSettings = draft.analysisSettings ?? defaultAnalysisSettings();
+  const summaryIndicators = useMemo(
+    () =>
+      buildSummaryIndicatorsModel({
+        expenses,
+        incomes,
+        adjustments,
+        currentDateKey: todayKey,
+        analysisSettings,
+      }),
+    [adjustments, analysisSettings, expenses, incomes, todayKey],
+  );
   const budgetComparisonModel = useMemo(
     () =>
       buildBudgetComparisonModel({
@@ -1304,83 +1289,117 @@ export default function HomePage() {
                   <div>
                     <p className="eyebrow">Vista General</p>
                     <h2>Panorama actual del flujo</h2>
-                    <p>Empieza aqui para revisar el estado del borrador, el balance y el desvio frente a presupuesto antes de entrar al detalle operativo.</p>
+                    <p>Empieza aqui para revisar saldo, ingresos y gastos proyectados para los proximos dias antes de entrar al detalle operativo.</p>
                   </div>
                   <div className="summary-hero-pills">
-                    <span className="summary-pill">Balance: {money(balance, "USD")}</span>
-                    <span className="summary-pill">Pendiente: {money(budgetComparisonModel.summary.differenceCurrent, "USD")}</span>
+                    <span className="summary-pill">Saldo hoy: {money(summaryIndicators.todayBalance, "USD")}</span>
+                    <span className="summary-pill">
+                      {summaryIndicators.nextIncome
+                        ? `Proximo ingreso: ${formatDateLabel(summaryIndicators.nextIncome.date)}`
+                        : "Sin proximo ingreso programado"}
+                    </span>
                   </div>
                 </div>
               </section>
 
               <div className="summary-grid">
-                <article className="summary-card summary-card-positive">
-                  <span>Ingresos reales</span>
-                  <strong>{money(incomeTotal, "USD")}</strong>
+                <article className="summary-card summary-card-balance">
+                  <span>Saldo al dia de hoy</span>
+                  <strong>{money(summaryIndicators.todayBalance, "USD")}</strong>
+                  <p className="summary-card-detail">Cierre estimado al {formatDateLabel(todayKey)}.</p>
                 </article>
-                <article className="summary-card summary-card-soft">
-                  <span>Reembolsos aplicados</span>
-                  <strong>{money(reimbursementTotal, "USD")}</strong>
+                <article className="summary-card summary-card-positive">
+                  <span>Gastos fijos de {summaryIndicators.currentMonthLabel}</span>
+                  <strong>{money(summaryIndicators.fixedExpensesMonthTotal, "USD")}</strong>
+                  <p className="summary-card-detail">Incluye todo lo programado dentro del mes actual.</p>
                 </article>
                 <article className="summary-card summary-card-warning">
-                  <span>Gastos netos</span>
-                  <strong>{money(expenseTotal, "USD")}</strong>
+                  <span>Gastos variables de {summaryIndicators.currentMonthLabel} al dia</span>
+                  <strong>{money(summaryIndicators.variableExpensesMonthToDate, "USD")}</strong>
+                  <p className="summary-card-detail">Acumulado hasta la fecha de consulta.</p>
+                </article>
+                <article className="summary-card summary-card-soft">
+                  <span>Ultimo ingreso</span>
+                  <strong>{summaryIndicators.lastIncome ? money(summaryIndicators.lastIncome.totalAmount, "USD") : "Sin datos"}</strong>
+                  <p className="summary-card-detail">
+                    {summaryIndicators.lastIncome
+                      ? `${summaryIndicators.lastIncome.label} · ${formatDateLabel(summaryIndicators.lastIncome.date)}`
+                      : "No hay ingresos registrados hasta hoy."}
+                  </p>
                 </article>
                 <article className="summary-card summary-card-neutral">
-                  <span>Cuadres</span>
-                  <strong>{money(adjustmentTotal, "USD")}</strong>
-                </article>
-                <article className="summary-card summary-card-balance">
-                  <span>Saldo actual</span>
-                  <strong>{money(balance, "USD")}</strong>
-                </article>
-                <article className="summary-card summary-card-emphasis">
-                  <span>Presupuestado actual</span>
-                  <strong>{money(budgetComparisonModel.summary.budgetedCurrent, "USD")}</strong>
+                  <span>Proximo ingreso</span>
+                  <strong>{summaryIndicators.nextIncome ? money(summaryIndicators.nextIncome.totalAmount, "USD") : "Sin fecha"}</strong>
+                  <p className="summary-card-detail">
+                    {summaryIndicators.nextIncome
+                      ? `${summaryIndicators.nextIncome.label} · ${formatDateLabel(summaryIndicators.nextIncome.date)}`
+                      : "No hay ingresos futuros programados."}
+                  </p>
                 </article>
                 <article className="summary-card summary-card-emphasis">
-                  <span>Real sobre presupuestos</span>
-                  <strong>{money(budgetComparisonModel.summary.actualCurrent, "USD")}</strong>
-                </article>
-                <article className="summary-card summary-card-emphasis">
-                  <span>Diferencia actual</span>
-                  <strong>{money(budgetComparisonModel.summary.differenceCurrent, "USD")}</strong>
-                </article>
-                <article className="summary-card">
-                  <span>Real no presupuestado (mes)</span>
-                  <strong>{money(budgetComparisonModel.summary.unbudgetedCurrent, "USD")}</strong>
+                  <span>Dias para el proximo ingreso</span>
+                  <strong>{summaryIndicators.nextIncome ? formatDaysUntilIncome(summaryIndicators.daysUntilNextIncome) : "Sin fecha"}</strong>
+                  <p className="summary-card-detail">
+                    {summaryIndicators.nextIncome
+                      ? `Contados desde hoy hasta ${formatDateLabel(summaryIndicators.nextIncome.date)}.`
+                      : "Agrega un ingreso para proyectar esta metrica."}
+                  </p>
                 </article>
               </div>
 
-              <section className="panel-card blank-panel summary-note">
-                <div className="panel-heading">
-                  <h2>Resumen general</h2>
-                  <p>Desde aqui controlas la version cargada, el estado del borrador y el balance general antes de pasar a cada pestana operativa.</p>
-                </div>
+              <div className="summary-detail-grid">
+                <section className="panel-card blank-panel summary-note">
+                  <div className="panel-heading">
+                    <h2>Proximos gastos</h2>
+                    <p>
+                      Desde {formatDateLabel(summaryIndicators.upcomingExpenseWindowStart)} hasta{" "}
+                      {formatDateLabel(summaryIndicators.upcomingExpenseWindowEnd)}.
+                    </p>
+                  </div>
 
-                <div className="summary-meta">
-                  <div>
-                    <span className="summary-meta-label">Version activa</span>
-                    <strong>{selectedVersion ? selectedVersion.snapshotDate : "Sin datos"}</strong>
+                  {summaryIndicators.upcomingExpenses.length ? (
+                    <div className="summary-list">
+                      {summaryIndicators.upcomingExpenses.map((expense) => (
+                        <article className="summary-list-item" key={expense.key}>
+                          <div className="summary-list-copy">
+                            <strong>{expense.name}</strong>
+                            <span>{expense.category}</span>
+                          </div>
+                          <div className="summary-list-meta">
+                            <span>{formatDateLabel(expense.date)}</span>
+                            <strong>{money(expense.amount, expense.currency)}</strong>
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="muted-text">No hay gastos programados en las proximas dos semanas.</p>
+                  )}
+                </section>
+
+                <section className="panel-card blank-panel summary-note">
+                  <div className="panel-heading">
+                    <h2>Alertas de saldo</h2>
+                    <p>Primera fecha proyectada en que el saldo queda bajo cada umbral.</p>
                   </div>
-                  <div>
-                    <span className="summary-meta-label">Entrada seleccionada</span>
-                    <strong>{selectedVersion ? labelVersion(selectedVersion) : "Sin historial todavia"}</strong>
+
+                  <div className="summary-threshold-grid">
+                    {summaryIndicators.thresholdAlerts.map((alert) => (
+                      <article className="summary-threshold-item" key={alert.key}>
+                        <span className="summary-meta-label">{alert.label}</span>
+                        <strong>
+                          {alert.state === "future" ? formatDateLabel(alert.date) : alert.state === "current" ? "Hoy" : "No proyectado"}
+                        </strong>
+                        <p className="summary-card-detail">
+                          {alert.state === "none"
+                            ? `Sin caidas hasta ${formatDateLabel(summaryIndicators.projectionEndKey)}.`
+                            : `Saldo estimado: ${money(alert.balance, "USD")}`}
+                        </p>
+                      </article>
+                    ))}
                   </div>
-                  <div>
-                    <span className="summary-meta-label">Registros en borrador</span>
-                    <strong>{draftRecordCount} elementos entre movimientos y presupuestos</strong>
-                  </div>
-                  <div>
-                    <span className="summary-meta-label">Bloques de presupuesto</span>
-                    <strong>{budgets.length ? `${budgets.length} configurados` : "Sin presupuestos todavia"}</strong>
-                  </div>
-                  <div>
-                    <span className="summary-meta-label">Criterio aplicado</span>
-                    <strong>Los gastos reales se comparan contra presupuestos por categoria y los reembolsos descuentan gastos.</strong>
-                  </div>
-                </div>
-              </section>
+                </section>
+              </div>
             </section>
           ) : null}
 
@@ -3097,6 +3116,235 @@ function getIncomeScheduleOverrideRecords(income) {
     .sort((left, right) => compareSortValues(left.originalDate, right.originalDate, "asc"));
 }
 
+function buildSummaryIndicatorsModel({ expenses, incomes, adjustments, currentDateKey, analysisSettings }) {
+  const todayDate = parseDateKey(currentDateKey);
+  const safeCurrentDateKey = isValidDate(todayDate) ? currentDateKey : localDate();
+  const safeCurrentDate = isValidDate(todayDate) ? todayDate : parseDateKey(safeCurrentDateKey);
+  const monthKey = String(safeCurrentDateKey).slice(0, 7);
+  const monthEndKey = localDate(getEndOfMonth(safeCurrentDate));
+  const upcomingExpenseWindowStart = localDate(addCalendarDays(safeCurrentDate, 1));
+  const upcomingExpenseWindowEnd = localDate(addCalendarDays(safeCurrentDate, 14));
+  const projectionEndKey = maxDateKey(
+    resolveSummaryForecastEnd({ expenses, incomes, adjustments, currentDateKey: safeCurrentDateKey, analysisSettings }),
+    monthEndKey,
+    upcomingExpenseWindowEnd,
+  );
+  const dailyBalanceChanges = {};
+  const incomeGroupsByDate = {};
+  const upcomingExpenses = [];
+  let fixedExpensesMonthTotal = 0;
+  let variableExpensesMonthToDate = 0;
+
+  for (const expense of expenses) {
+    const amount = Number(expense.amount) || 0;
+    const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
+    const group = getExpenseCategoryGroup(category);
+    const occurrenceDates = buildRecurringDates({
+      startDate: expense.movementDate ?? expense.date,
+      frequency: expense.frequency,
+      endDate: expense.endDate,
+      isRecurringIndefinite: expense.isRecurringIndefinite,
+      displayEnd: projectionEndKey,
+    });
+
+    for (const date of occurrenceDates) {
+      increaseDateValue(dailyBalanceChanges, date, -amount);
+
+      if (date > safeCurrentDateKey && date <= upcomingExpenseWindowEnd) {
+        upcomingExpenses.push({
+          amount,
+          category,
+          currency: expense.currency ?? "USD",
+          date,
+          key: `${expense.id}-${date}`,
+          name: expense.name || "Gasto",
+        });
+      }
+
+      if (String(date).slice(0, 7) !== monthKey) {
+        continue;
+      }
+
+      if (group === "fixed") {
+        fixedExpensesMonthTotal += amount;
+      }
+
+      if (group === "variable" && date <= safeCurrentDateKey) {
+        variableExpensesMonthToDate += amount;
+      }
+    }
+  }
+
+  for (const income of incomes) {
+    const amount = Number(income.amount) || 0;
+    const occurrences = buildIncomeOccurrenceEntries({
+      income,
+      displayEnd: projectionEndKey,
+    });
+
+    for (const occurrence of occurrences) {
+      const date = occurrence.date;
+      increaseDateValue(dailyBalanceChanges, date, amount);
+
+      if (income.isReimbursement) {
+        const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
+        const group = getExpenseCategoryGroup(category);
+
+        if (String(date).slice(0, 7) === monthKey) {
+          if (group === "fixed") {
+            fixedExpensesMonthTotal -= amount;
+          }
+
+          if (group === "variable" && date <= safeCurrentDateKey) {
+            variableExpensesMonthToDate -= amount;
+          }
+        }
+
+        continue;
+      }
+
+      if (!incomeGroupsByDate[date]) {
+        incomeGroupsByDate[date] = { date, items: [], totalAmount: 0 };
+      }
+
+      incomeGroupsByDate[date].items.push({
+        amount,
+        key: `${income.id}-${occurrence.originalDate}-${date}`,
+        name: income.name || "Ingreso",
+      });
+      incomeGroupsByDate[date].totalAmount += amount;
+    }
+  }
+
+  for (const adjustment of adjustments) {
+    increaseDateValue(dailyBalanceChanges, adjustment.date, Number(adjustment.amount) || 0);
+  }
+
+  const todayBalance = Object.entries(dailyBalanceChanges)
+    .filter(([date]) => date <= safeCurrentDateKey)
+    .reduce((sum, [, amount]) => sum + (Number(amount) || 0), 0);
+
+  const incomeTimeline = Object.values(incomeGroupsByDate)
+    .map((group) => ({
+      ...group,
+      label: summarizeOccurrenceGroupLabel(group.items, "Ingreso"),
+    }))
+    .sort((left, right) => compareSortValues(left.date, right.date, "asc"));
+
+  let lastIncome = null;
+  let nextIncome = null;
+
+  for (const group of incomeTimeline) {
+    if (group.date <= safeCurrentDateKey) {
+      lastIncome = group;
+      continue;
+    }
+
+    nextIncome = group;
+    break;
+  }
+
+  const futureDates = Object.keys(dailyBalanceChanges)
+    .filter((date) => date > safeCurrentDateKey)
+    .sort((left, right) => compareSortValues(left, right, "asc"));
+  const thresholdAlerts = [
+    { key: "negative", label: "Saldo < 0", test: (value) => value < 0 },
+    { key: "lt100", label: "Saldo < $100", test: (value) => value < 100 },
+    { key: "lt500", label: "Saldo < $500", test: (value) => value < 500 },
+    { key: "lt1000", label: "Saldo < $1,000", test: (value) => value < 1000 },
+  ].map((threshold) => {
+    if (threshold.test(todayBalance)) {
+      return {
+        ...threshold,
+        balance: todayBalance,
+        date: safeCurrentDateKey,
+        state: "current",
+      };
+    }
+
+    let projectedBalance = todayBalance;
+
+    for (const date of futureDates) {
+      projectedBalance += dailyBalanceChanges[date] ?? 0;
+
+      if (threshold.test(projectedBalance)) {
+        return {
+          ...threshold,
+          balance: projectedBalance,
+          date,
+          state: "future",
+        };
+      }
+    }
+
+    return {
+      ...threshold,
+      balance: null,
+      date: "",
+      state: "none",
+    };
+  });
+
+  upcomingExpenses.sort((left, right) => {
+    const dateResult = compareSortValues(left.date, right.date, "asc");
+    if (dateResult !== 0) return dateResult;
+    const amountResult = compareSortValues(right.amount, left.amount, "asc");
+    if (amountResult !== 0) return amountResult;
+    return compareSortValues(left.name, right.name, "asc");
+  });
+
+  return {
+    currentMonthLabel: formatMonthLabel(monthKey),
+    daysUntilNextIncome: nextIncome ? differenceInCalendarDays(parseDateKey(nextIncome.date), safeCurrentDate) : null,
+    fixedExpensesMonthTotal,
+    lastIncome,
+    nextIncome,
+    projectionEndKey,
+    thresholdAlerts,
+    todayBalance,
+    upcomingExpenseWindowEnd,
+    upcomingExpenseWindowStart,
+    upcomingExpenses,
+    variableExpensesMonthToDate,
+  };
+}
+
+function resolveSummaryForecastEnd({ expenses, incomes, adjustments, currentDateKey, analysisSettings }) {
+  const baseDate = parseDateKey(currentDateKey);
+  const baselineEnd = localDate(isValidDate(baseDate) ? addCalendarMonths(baseDate, 60) : new Date());
+  const incomeOverrideDates = [];
+
+  for (const income of incomes ?? []) {
+    for (const [originalDate, value] of Object.entries(sanitizeIncomeScheduleOverrides(income?.scheduleOverrides))) {
+      incomeOverrideDates.push(originalDate, value.adjustedDate);
+    }
+  }
+
+  return maxDateKey(
+    baselineEnd,
+    currentDateKey,
+    analysisSettings?.endDate,
+    ...(adjustments ?? []).map((adjustment) => adjustment.date),
+    ...(expenses ?? []).flatMap((expense) => [expense.movementDate ?? expense.date, expense.endDate]),
+    ...(incomes ?? []).flatMap((income) => [income.startDate, income.endDate]),
+    ...incomeOverrideDates,
+  );
+}
+
+function summarizeOccurrenceGroupLabel(items, fallbackLabel) {
+  const names = [...new Set((items ?? []).map((item) => String(item?.name ?? "").trim()).filter(Boolean))];
+
+  if (!names.length) {
+    return fallbackLabel;
+  }
+
+  if (names.length === 1) {
+    return names[0];
+  }
+
+  return `${names[0]} + ${names.length - 1} mas`;
+}
+
 function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDateKey, analysisSettings }) {
   const settings = sanitizeAnalysisSettings(analysisSettings);
   const chartSettings = getChartMonthSettings(settings);
@@ -4102,6 +4350,13 @@ function localDate(date = new Date()) {
 
 function money(value, currency) {
   return formatMoneyAmount(value, currency || "USD", "es-CL");
+}
+
+function formatDaysUntilIncome(days) {
+  if (days == null) return "Sin fecha";
+  if (days <= 0) return "Hoy";
+  if (days === 1) return "1 dia";
+  return `${days} dias`;
 }
 
 function formatCompactCurrency(value) {
