@@ -26,6 +26,7 @@ import ExpenseImportModal from "@/components/expense-import-modal";
 import ExpensesTable from "@/components/expenses-table";
 import IncomesTable from "@/components/incomes-table";
 import IncomeScheduleModal from "@/components/income-schedule-modal";
+import MarketHeroCarousel from "@/components/market-hero-carousel";
 import ReconciliationTable from "@/components/reconciliation-table";
 import { getFirebaseAuth, getFirebaseDatabase } from "@/lib/firebase";
 import { getFirebaseTextWarning, sanitizeFirebaseCompatibleText } from "@/lib/firebase-safe";
@@ -1325,6 +1326,7 @@ export default function HomePage() {
           <div className="topbar-meta">
             <span className="hero-chip">{draftRecordCount} registros proyectados</span>
           </div>
+          <MarketHeroCarousel />
         </div>
 
         <div className="topbar-side">
