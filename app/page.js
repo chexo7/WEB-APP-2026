@@ -1326,7 +1326,6 @@ export default function HomePage() {
           <div className="topbar-meta">
             <span className="hero-chip">{draftRecordCount} registros proyectados</span>
           </div>
-          <MarketHeroCarousel />
         </div>
 
         <div className="topbar-side">
@@ -1360,6 +1359,10 @@ export default function HomePage() {
             </button>
           </div>
         </div>
+      </section>
+
+      <section className="market-showcase">
+        <MarketHeroCarousel />
       </section>
 
       <section className="tabs-card">
