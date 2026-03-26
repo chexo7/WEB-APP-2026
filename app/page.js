@@ -1698,7 +1698,10 @@ export default function HomePage() {
             <section className="workspace-stack budgets-stack">
               <div className="budget-tab-header">
                 <h2>Presupuesto</h2>
-                <p className="section-copy">Define bloques por categoria con fecha y frecuencia para comparar cada gasto real contra su presupuesto exacto.</p>
+                <p className="section-copy">
+                  Define bloques por categoria con fecha y frecuencia para comparar cada gasto real contra su presupuesto exacto.
+                  Puedes crear varios bloques para la misma categoria y el total se sumara automaticamente.
+                </p>
               </div>
 
               <form className="panel-card panel-frame entry-form budget-entry-form" onSubmit={saveBudgetToDraft}>
@@ -1872,7 +1875,7 @@ export default function HomePage() {
 
                   <p className="budget-monthly-note">
                     Se muestran solo categorias con movimientos reales en el mes seleccionado. Si un bloque cubre varias categorias,
-                    el monto se reparte entre ellas en esta vista.
+                    el monto se reparte entre ellas en esta vista. Si una categoria tiene varios bloques activos, todos se acumulan.
                   </p>
 
                   <div className="budget-monthly-summary">
@@ -3105,26 +3108,6 @@ function validateAnalysisSettings(settings) {
 }
 
 function validateBudgetCollection(budgets) {
-  const budgetList = Object.entries(budgets ?? {}).map(([id, value]) => ({ id, ...value }));
-
-  for (let index = 0; index < budgetList.length; index += 1) {
-    const current = budgetList[index];
-    const currentRange = getBudgetActiveRange(current);
-    const currentCategories = getBudgetCategories(current);
-
-    for (let compareIndex = index + 1; compareIndex < budgetList.length; compareIndex += 1) {
-      const candidate = budgetList[compareIndex];
-      const candidateCategories = getBudgetCategories(candidate);
-      const sharedCategories = currentCategories.filter((category) => candidateCategories.includes(category));
-
-      if (!sharedCategories.length) continue;
-
-      if (budgetRangesOverlap(currentRange, getBudgetActiveRange(candidate))) {
-        return `La categoria ${sharedCategories[0]} ya pertenece a otro presupuesto activo. Ajusta las categorias o el rango para evitar cruces.`;
-      }
-    }
-  }
-
   return "";
 }
 
@@ -4075,19 +4058,6 @@ function formatPeriodLabel(startKey, endKey) {
   if (!startKey) return "Sin rango";
   if (!endKey || startKey === endKey) return formatDateLabel(startKey);
   return `${formatDateLabel(startKey)} - ${formatDateLabel(endKey)}`;
-}
-
-function getBudgetActiveRange(budget) {
-  return {
-    startKey: budget.startDate,
-    endKey: budget.isRecurringIndefinite ? null : budget.endDate || budget.startDate,
-  };
-}
-
-function budgetRangesOverlap(left, right) {
-  const leftEnd = left.endKey ?? "9999-12-31";
-  const rightEnd = right.endKey ?? "9999-12-31";
-  return left.startKey <= rightEnd && right.startKey <= leftEnd;
 }
 
 function getMonthRangePartsFromMonths(startMonthKey, endMonthKey) {
