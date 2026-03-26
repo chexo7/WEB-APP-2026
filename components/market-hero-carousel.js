@@ -235,7 +235,7 @@ export default function MarketHeroCarousel() {
           {carouselItems.map((item, index) => (
             <article
               aria-hidden={index !== (items.length <= 1 ? activeIndex : trackIndex)}
-              className={`market-slide is-${item.direction}`}
+              className={item.isUnavailable ? "market-slide is-unavailable" : `market-slide is-${item.direction}`}
               key={`${item.id}-${index}`}
             >
               <div className="market-slide-copy">
@@ -248,9 +248,11 @@ export default function MarketHeroCarousel() {
                 </div>
 
                 <div>
-                  <p className="market-slide-value">{item.displayValue}</p>
+                  {item.isUnavailable ? <div aria-hidden="true" className="market-slide-value-placeholder" /> : <p className="market-slide-value">{item.displayValue}</p>}
                   <p className="market-slide-blurb">
-                    Tendencia {describeDirection(item.direction)} con base en los ultimos puntos disponibles.
+                    {item.isUnavailable
+                      ? item.errorMessage || "No pudimos cargar este indicador con la fuente actual."
+                      : `Tendencia ${describeDirection(item.direction)} con base en los ultimos puntos disponibles.`}
                   </p>
                 </div>
 
@@ -266,42 +268,57 @@ export default function MarketHeroCarousel() {
                 ) : null}
 
                 <div className="market-slide-meta">
-                  <span className={`market-change-chip ${item.direction === "flat" ? "is-flat" : ""}`}>
-                    <TrendIcon direction={item.direction} />
-                    {formatChangeLabel(item)}
-                  </span>
-                  <span className="market-update-chip">Actualizado {formatUpdatedAt(item.updatedAt)}</span>
+                  {item.isUnavailable ? (
+                    <span className="market-update-chip">Sin datos disponibles</span>
+                  ) : (
+                    <>
+                      <span className={`market-change-chip ${item.direction === "flat" ? "is-flat" : ""}`}>
+                        <TrendIcon direction={item.direction} />
+                        {formatChangeLabel(item)}
+                      </span>
+                      <span className="market-update-chip">Actualizado {formatUpdatedAt(item.updatedAt)}</span>
+                    </>
+                  )}
                 </div>
               </div>
 
               <div className="market-slide-chart-shell">
-                <span className="market-slide-window">Ultimos {item.series?.length || 0} puntos</span>
+                <span className="market-slide-window">{item.isUnavailable ? "Sin serie disponible" : `Ultimos ${item.series?.length || 0} puntos`}</span>
                 <div className="market-slide-chart">
-                  <div className="market-chart-figure">
-                    <ResponsiveContainer height="100%" width="100%">
-                      <AreaChart data={item.series}>
-                        <defs>
-                          <linearGradient id={`market-fill-${item.id}`} x1="0" x2="0" y1="0" y2="1">
-                            <stop offset="0%" stopColor={resolveChartColor(item.direction)} stopOpacity={0.28} />
-                            <stop offset="100%" stopColor={resolveChartColor(item.direction)} stopOpacity={0.02} />
-                          </linearGradient>
-                        </defs>
-                        <Area
-                          dataKey="value"
-                          dot={false}
-                          fill={`url(#market-fill-${item.id})`}
-                          isAnimationActive={false}
-                          stroke={resolveChartColor(item.direction)}
-                          strokeWidth={3}
-                          type="monotone"
-                        />
-                      </AreaChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="market-slide-range">
-                    <span>{formatShortDate(item.series?.[0]?.date)}</span>
-                    <span>{formatShortDate(item.series?.[item.series.length - 1]?.date)}</span>
-                  </div>
+                  {item.isUnavailable || !item.series?.length ? (
+                    <div className="market-chart-empty">
+                      <strong>{item.source}</strong>
+                      <span>Este indicador existe, pero su fuente no devolvio un valor utilizable.</span>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="market-chart-figure">
+                        <ResponsiveContainer height="100%" width="100%">
+                          <AreaChart data={item.series}>
+                            <defs>
+                              <linearGradient id={`market-fill-${item.id}`} x1="0" x2="0" y1="0" y2="1">
+                                <stop offset="0%" stopColor={resolveChartColor(item.direction)} stopOpacity={0.28} />
+                                <stop offset="100%" stopColor={resolveChartColor(item.direction)} stopOpacity={0.02} />
+                              </linearGradient>
+                            </defs>
+                            <Area
+                              dataKey="value"
+                              dot={false}
+                              fill={`url(#market-fill-${item.id})`}
+                              isAnimationActive={false}
+                              stroke={resolveChartColor(item.direction)}
+                              strokeWidth={3}
+                              type="monotone"
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="market-slide-range">
+                        <span>{formatShortDate(item.series?.[0]?.date)}</span>
+                        <span>{formatShortDate(item.series?.[item.series.length - 1]?.date)}</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </article>

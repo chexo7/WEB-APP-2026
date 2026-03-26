@@ -91,7 +91,38 @@ export async function GET() {
     candlesPayload: bitcoinCandlesPayload,
   });
 
-  const items = [usdClpItem, ufItem, brentItem, wtiItem, bitcoinItem].filter(Boolean);
+  const items = [
+    ensureMetric(usdClpItem, {
+      id: "usd-clp",
+      label: "Dolar observado",
+      source: "Mindicador",
+      message: "No pudimos obtener el valor actual del dolar observado.",
+    }),
+    ensureMetric(ufItem, {
+      id: "uf-cl",
+      label: "Unidad de fomento",
+      source: "Mindicador",
+      message: "No pudimos obtener el valor actual de la UF.",
+    }),
+    ensureMetric(brentItem, {
+      id: "brent-oil",
+      label: "Petroleo Brent",
+      source: "EIA",
+      message: "No pudimos obtener la referencia Brent desde la fuente publica.",
+    }),
+    ensureMetric(wtiItem, {
+      id: "wti-oil",
+      label: "Petroleo WTI",
+      source: "EIA",
+      message: "No pudimos obtener la referencia WTI desde la fuente publica.",
+    }),
+    ensureMetric(bitcoinItem, {
+      id: "bitcoin-usd",
+      label: "Bitcoin / USD",
+      source: "Coinbase",
+      message: "No pudimos obtener el precio actual de Bitcoin.",
+    }),
+  ];
   const asOf =
     items
       .map((item) => item.updatedAt)
@@ -279,6 +310,32 @@ function buildMarketMetric({ id, label, source, unitLabel, decimals, currentValu
     updatedAt: normalizeDateTime(updatedAt) ?? normalizeDateOnly(updatedAt) ?? new Date().toISOString(),
     series: normalizedSeries,
     facts,
+    isUnavailable: false,
+    errorMessage: "",
+  };
+}
+
+function ensureMetric(metric, { id, label, source, message }) {
+  if (metric) {
+    return metric;
+  }
+
+  return {
+    id,
+    label,
+    source,
+    value: null,
+    displayValue: "",
+    displayDecimals: 0,
+    unitLabel: "",
+    direction: "flat",
+    changeAbs: null,
+    changePct: null,
+    updatedAt: "",
+    series: [],
+    facts: [],
+    isUnavailable: true,
+    errorMessage: message,
   };
 }
 
