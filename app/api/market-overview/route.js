@@ -408,8 +408,10 @@ function parseEiaDailyHistorySeries(html) {
     const endYear = endMonth < startMonth ? startYear + 1 : startYear;
     const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay));
     const businessDays = collectBusinessDays(startDate, endDate);
-    const usableDates = (businessDays.length >= values.length ? businessDays.slice(-values.length) : businessDays).slice(-values.length);
-    const usableValues = values.slice(-usableDates.length);
+    // EIA publica semanas parciales con los primeros dias disponibles de la semana.
+    // Si llega 1 valor para "Mar-23 to Mar-27", ese dato corresponde al 23 y no al 27.
+    const usableDates = businessDays.slice(0, values.length);
+    const usableValues = values.slice(0, usableDates.length);
 
     usableDates.forEach((date, index) => {
       points.push({
