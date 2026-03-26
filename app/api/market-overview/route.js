@@ -2,12 +2,24 @@ const HALF_HOUR_IN_SECONDS = 60 * 30;
 const MINDICADOR_API_ROOT = "https://mindicador.cl/api";
 const COINBASE_API_ROOT = "https://api.coinbase.com/v2";
 const COINBASE_EXCHANGE_API_ROOT = "https://api.exchange.coinbase.com";
-const EIA_HISTORY_PAGES = {
-  brent: "https://www.eia.gov/dnav/pet/hist/RBRTED.htm",
-  wti: "https://www.eia.gov/dnav/pet/hist/RWTCD.htm",
+const FRED_GRAPH_API_ROOT = "https://fred.stlouisfed.org/graph/fredgraph.csv";
+const FRED_OIL_SERIES = {
+  brent: {
+    key: "brent",
+    label: "Brent",
+    seriesId: "DCOILBRENTEU",
+    color: "#9a5b1f",
+  },
+  wti: {
+    key: "wti",
+    label: "WTI",
+    seriesId: "DCOILWTICO",
+    color: "#24588f",
+  },
 };
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 export const revalidate = 1800;
 
 export async function GET() {
@@ -19,16 +31,16 @@ export async function GET() {
     ufSeriesResult,
     bitcoinSpotResult,
     bitcoinCandlesResult,
-    brentHistoryResult,
-    wtiHistoryResult,
+    brentSeriesResult,
+    wtiSeriesResult,
   ] = await Promise.allSettled([
     fetchJson(MINDICADOR_API_ROOT),
     fetchJson(`${MINDICADOR_API_ROOT}/dolar`),
     fetchJson(`${MINDICADOR_API_ROOT}/uf`),
     fetchJson(`${COINBASE_API_ROOT}/prices/BTC-USD/spot`),
     fetchJson(`${COINBASE_EXCHANGE_API_ROOT}/products/BTC-USD/candles?granularity=86400`),
-    fetchText(EIA_HISTORY_PAGES.brent),
-    fetchText(EIA_HISTORY_PAGES.wti),
+    fetchText(buildFredSeriesUrl(FRED_OIL_SERIES.brent.seriesId)),
+    fetchText(buildFredSeriesUrl(FRED_OIL_SERIES.wti.seriesId)),
   ]);
 
   const mindicadorSummary = unwrapSettledValue(mindicadorSummaryResult, "Mindicador resumen", warnings);
@@ -36,8 +48,8 @@ export async function GET() {
   const ufSeriesPayload = unwrapSettledValue(ufSeriesResult, "Mindicador UF", warnings);
   const bitcoinSpotPayload = unwrapSettledValue(bitcoinSpotResult, "Coinbase Bitcoin spot", warnings);
   const bitcoinCandlesPayload = unwrapSettledValue(bitcoinCandlesResult, "Coinbase Bitcoin velas", warnings);
-  const brentHistoryHtml = unwrapSettledValue(brentHistoryResult, "EIA Brent", warnings);
-  const wtiHistoryHtml = unwrapSettledValue(wtiHistoryResult, "EIA WTI", warnings);
+  const brentSeriesCsv = unwrapSettledValue(brentSeriesResult, "FRED Brent", warnings);
+  const wtiSeriesCsv = unwrapSettledValue(wtiSeriesResult, "FRED WTI", warnings);
 
   const usdClpItem = buildMindicadorMetric({
     id: "usd-clp",
@@ -63,24 +75,18 @@ export async function GET() {
     const ufUsdValue = ufItem.value / usdClpItem.value;
     ufItem.facts = [
       {
-        label: "Relacion UF / USD",
-        value: `${formatUsdValue(ufUsdValue, 2)} por UF`,
+        label: "UF en USD",
+        value: formatUsdValue(ufUsdValue, 2),
       },
     ];
   }
 
-  const brentItem = buildEiaOilMetric({
-    id: "brent-oil",
-    label: "Petroleo Brent",
-    source: "EIA",
-    historyHtml: brentHistoryHtml,
-  });
-
-  const wtiItem = buildEiaOilMetric({
-    id: "wti-oil",
-    label: "Petroleo WTI",
-    source: "EIA",
-    historyHtml: wtiHistoryHtml,
+  const oilItem = buildFredOilMetric({
+    id: "oil",
+    label: "Petroleo",
+    source: "FRED / EIA",
+    brentCsv: brentSeriesCsv,
+    wtiCsv: wtiSeriesCsv,
   });
 
   const bitcoinItem = buildCoinbaseBitcoinMetric({
@@ -104,17 +110,11 @@ export async function GET() {
       source: "Mindicador",
       message: "No pudimos obtener el valor actual de la UF.",
     }),
-    ensureMetric(brentItem, {
-      id: "brent-oil",
-      label: "Petroleo Brent",
-      source: "EIA",
-      message: "No pudimos obtener la referencia Brent desde la fuente publica.",
-    }),
-    ensureMetric(wtiItem, {
-      id: "wti-oil",
-      label: "Petroleo WTI",
-      source: "EIA",
-      message: "No pudimos obtener la referencia WTI desde la fuente publica.",
+    ensureMetric(oilItem, {
+      id: "oil",
+      label: "Petroleo",
+      source: "FRED / EIA",
+      message: "No pudimos obtener referencias recientes de Brent y WTI desde la nueva fuente publica.",
     }),
     ensureMetric(bitcoinItem, {
       id: "bitcoin-usd",
@@ -168,7 +168,7 @@ async function fetchJson(url) {
 async function fetchText(url) {
   const response = await fetch(url, {
     headers: {
-      Accept: "text/html, text/plain;q=0.9, */*;q=0.8",
+      Accept: "text/csv, text/plain;q=0.9, */*;q=0.8",
       "User-Agent": "web-app-2026",
     },
     next: {
@@ -264,25 +264,55 @@ function buildCoinbaseBitcoinMetric({ id, label, source, spotPayload, candlesPay
   });
 }
 
-function buildEiaOilMetric({ id, label, source, historyHtml }) {
-  const series = parseEiaDailyHistorySeries(historyHtml).slice(-14);
-  const latestPoint = series[series.length - 1];
+function buildFredOilMetric({ id, label, source, brentCsv, wtiCsv }) {
+  const quotes = [FRED_OIL_SERIES.brent, FRED_OIL_SERIES.wti]
+    .map((seriesConfig) => buildOilQuoteCard(seriesConfig, seriesConfig.key === "brent" ? brentCsv : wtiCsv))
+    .filter(Boolean);
 
-  if (!latestPoint) {
+  if (!quotes.length) {
     return null;
   }
 
-  return buildMarketMetric({
+  const averageCurrentValue = roundToDecimals(quotes.reduce((total, quote) => total + quote.value, 0) / quotes.length, 2);
+  const averagePreviousValue = roundToDecimals(quotes.reduce((total, quote) => total + quote.previousValue, 0) / quotes.length, 2);
+  const aggregateChangeAbs = roundToDecimals(averageCurrentValue - averagePreviousValue, 2);
+  const aggregateChangePct = averagePreviousValue
+    ? roundToDecimals(((averageCurrentValue - averagePreviousValue) / averagePreviousValue) * 100, 2)
+    : 0;
+  const updatedAt =
+    quotes
+      .map((quote) => quote.updatedAt)
+      .filter(Boolean)
+      .sort()
+      .at(-1) || new Date().toISOString();
+  const chartSeries = mergeMultiSeries(quotes);
+  const spreadValue =
+    quotes.length === 2 ? roundToDecimals(quotes[0].value - quotes[1].value, 2) : null;
+
+  return {
     id,
     label,
     source,
+    value: averageCurrentValue,
+    displayValue: formatUsdValue(averageCurrentValue, 2),
+    displayDecimals: 2,
     unitLabel: "USD",
-    decimals: 2,
-    currentValue: latestPoint.value,
-    updatedAt: latestPoint.date,
-    series,
-    formatStyle: "usd",
-  });
+    direction: resolveDirection(aggregateChangeAbs),
+    changeAbs: aggregateChangeAbs,
+    changePct: aggregateChangePct,
+    updatedAt: normalizeDateTime(updatedAt) ?? new Date().toISOString(),
+    series: chartSeries,
+    facts: spreadValue == null ? [] : [{ label: "Spread Brent-WTI", value: formatUsdValue(spreadValue, 2) }],
+    description:
+      quotes.length === 2
+        ? "Brent y WTI quedaron consolidados en un solo panel para seguir el petroleo sin cambiar de slide."
+        : `Solo pudimos actualizar ${quotes[0].label} desde la fuente publica en este momento.`,
+    quoteCards: quotes,
+    chartKeys: quotes.map(({ key, label, color }) => ({ key, label, color })),
+    showAggregateChange: false,
+    isUnavailable: false,
+    errorMessage: "",
+  };
 }
 
 function buildMarketMetric({ id, label, source, unitLabel, decimals, currentValue, updatedAt, series, formatStyle, facts = [] }) {
@@ -372,114 +402,78 @@ function normalizeCoinbaseCandles(payload) {
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function parseEiaDailyHistorySeries(html) {
-  const lines = extractReadableLines(html);
-  const linePattern = /^(\d{4})\s+([A-Za-z]{3})-\s*(\d{1,2})\s+to\s+([A-Za-z]{3})-\s*(\d{1,2})\s+(.+)$/;
-  const points = [];
+function buildOilQuoteCard(seriesConfig, csvPayload) {
+  const series = normalizeFredCsvSeries(csvPayload).slice(-14);
+  const latestPoint = series[series.length - 1];
+  const comparisonPoint = series[series.length - 2] ?? latestPoint;
 
-  lines.forEach((line) => {
-    const match = line.match(linePattern);
+  if (!latestPoint || !comparisonPoint) {
+    return null;
+  }
 
-    if (!match) {
-      return;
-    }
+  const changeAbs = roundToDecimals(latestPoint.value - comparisonPoint.value, 2);
+  const changePct = comparisonPoint.value
+    ? roundToDecimals(((latestPoint.value - comparisonPoint.value) / comparisonPoint.value) * 100, 2)
+    : 0;
 
-    const [, startYearText, startMonthLabel, startDayText, endMonthLabel, endDayText, valueText] = match;
-    const startYear = Number(startYearText);
-    const startMonth = monthLabelToNumber(startMonthLabel);
-    const endMonth = monthLabelToNumber(endMonthLabel);
-    const startDay = Number(startDayText);
-    const endDay = Number(endDayText);
+  return {
+    key: seriesConfig.key,
+    label: seriesConfig.label,
+    color: seriesConfig.color,
+    value: roundToDecimals(latestPoint.value, 2),
+    previousValue: roundToDecimals(comparisonPoint.value, 2),
+    displayValue: formatUsdValue(latestPoint.value, 2),
+    displayDecimals: 2,
+    unitLabel: "USD",
+    direction: resolveDirection(changeAbs),
+    changeAbs,
+    changePct,
+    updatedAt: latestPoint.date,
+    series,
+  };
+}
 
-    if (!startMonth || !endMonth || !Number.isFinite(startDay) || !Number.isFinite(endDay)) {
-      return;
-    }
-
-    const values = valueText
-      .split(/\s+/)
-      .map((token) => toFiniteNumber(token.replace(",", "")))
-      .filter((value) => value != null);
-
-    if (!values.length) {
-      return;
-    }
-
-    const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay));
-    const endYear = endMonth < startMonth ? startYear + 1 : startYear;
-    const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay));
-    const businessDays = collectBusinessDays(startDate, endDate);
-    // EIA publica semanas parciales con los primeros dias disponibles de la semana.
-    // Si llega 1 valor para "Mar-23 to Mar-27", ese dato corresponde al 23 y no al 27.
-    const usableDates = businessDays.slice(0, values.length);
-    const usableValues = values.slice(0, usableDates.length);
-
-    usableDates.forEach((date, index) => {
-      points.push({
-        date: localDateKey(date),
-        value: usableValues[index],
-      });
-    });
-  });
-
-  return points
+function normalizeFredCsvSeries(csvText) {
+  return String(csvText ?? "")
+    .split(/\r?\n/)
+    .slice(1)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [date, rawValue] = line.split(",", 2);
+      return {
+        date: normalizeDateOnly(date),
+        value: toFiniteNumber(rawValue),
+      };
+    })
     .filter(isValidSeriesPoint)
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function extractReadableLines(html) {
-  const text = String(html ?? "")
-    .replace(/<\s*br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|tr|li|pre|table|h\d|td|th|section)>/gi, "\n")
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;|&#160;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/gi, "'")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">");
+function mergeMultiSeries(quotes) {
+  const dates = new Set();
 
-  return text
-    .split(/\r?\n/)
-    .map((line) => line.replace(/\s+/g, " ").trim())
-    .filter(Boolean);
+  quotes.forEach((quote) => {
+    quote.series.forEach((point) => {
+      dates.add(point.date);
+    });
+  });
+
+  return Array.from(dates)
+    .sort()
+    .map((date) => {
+      const point = { date };
+
+      quotes.forEach((quote) => {
+        point[quote.key] = quote.series.find((entry) => entry.date === date)?.value ?? null;
+      });
+
+      return point;
+    });
 }
 
-function collectBusinessDays(startDate, endDate) {
-  const dates = [];
-  const cursor = new Date(startDate.getTime());
-
-  while (cursor <= endDate) {
-    const weekday = cursor.getUTCDay();
-
-    if (weekday !== 0 && weekday !== 6) {
-      dates.push(new Date(cursor.getTime()));
-    }
-
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-
-  return dates;
-}
-
-function monthLabelToNumber(label) {
-  const normalized = String(label ?? "").trim().slice(0, 3).toLowerCase();
-
-  return {
-    jan: 1,
-    feb: 2,
-    mar: 3,
-    apr: 4,
-    may: 5,
-    jun: 6,
-    jul: 7,
-    aug: 8,
-    sep: 9,
-    oct: 10,
-    nov: 11,
-    dec: 12,
-  }[normalized] ?? 0;
+function buildFredSeriesUrl(seriesId) {
+  return `${FRED_GRAPH_API_ROOT}?id=${encodeURIComponent(seriesId)}`;
 }
 
 function formatMetricValue(value, unitLabel, decimals, formatStyle) {
@@ -542,6 +536,10 @@ function normalizeDateTime(value) {
 
   if (!text) {
     return "";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return text;
   }
 
   const normalized = text.includes("T") ? text : text.replace(" ", "T");

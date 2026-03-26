@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Area, AreaChart, ResponsiveContainer } from "recharts";
+import { Area, AreaChart, Line, LineChart, ResponsiveContainer } from "recharts";
 
 const AUTOPLAY_INTERVAL_MS = 6000;
 const SWIPE_THRESHOLD_PX = 44;
@@ -12,6 +12,7 @@ export default function MarketHeroCarousel() {
   const [message, setMessage] = useState("");
   const [trackIndex, setTrackIndex] = useState(0);
   const [isAnimating, setIsAnimating] = useState(false);
+  const [isTransitioning, setIsTransitioning] = useState(false);
   const [isPaused, setIsPaused] = useState(false);
   const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
   const touchStartRef = useRef(null);
@@ -21,11 +22,16 @@ export default function MarketHeroCarousel() {
     return [items[items.length - 1], ...items, items[0]];
   }, [items]);
 
+  const safeTrackIndex = useMemo(() => {
+    if (items.length <= 1) return 0;
+    return clamp(trackIndex, 0, items.length + 1);
+  }, [items.length, trackIndex]);
+
   const activeIndex = useMemo(() => {
     if (!items.length) return 0;
     if (items.length === 1) return 0;
-    return modulo(trackIndex - 1, items.length);
-  }, [items.length, trackIndex]);
+    return modulo(safeTrackIndex - 1, items.length);
+  }, [items.length, safeTrackIndex]);
 
   useEffect(() => {
     let ignore = false;
@@ -48,6 +54,7 @@ export default function MarketHeroCarousel() {
         setItems(nextItems);
         setTrackIndex(nextItems.length > 1 ? 1 : 0);
         setIsAnimating(false);
+        setIsTransitioning(false);
         setMessage(warningText);
         setStatus(nextItems.length ? "ready" : response.ok ? "empty" : "error");
       } catch (error) {
@@ -55,6 +62,7 @@ export default function MarketHeroCarousel() {
         setItems([]);
         setTrackIndex(0);
         setIsAnimating(false);
+        setIsTransitioning(false);
         setStatus("error");
         setMessage("No pudimos cargar los indicadores ahora mismo.");
       }
@@ -100,37 +108,84 @@ export default function MarketHeroCarousel() {
   }, [isAnimating, items.length]);
 
   useEffect(() => {
-    if (typeof window === "undefined" || items.length <= 1 || isPaused || prefersReducedMotion) {
+    if (typeof window === "undefined" || items.length <= 1 || isPaused || prefersReducedMotion || isTransitioning) {
       return undefined;
     }
 
     const intervalId = window.setInterval(() => {
-      setIsAnimating(true);
-      setTrackIndex((currentIndex) => currentIndex + 1);
+      advanceSlide(1);
     }, AUTOPLAY_INTERVAL_MS);
 
     return () => window.clearInterval(intervalId);
-  }, [isPaused, items.length, prefersReducedMotion]);
+  }, [isPaused, isTransitioning, items.length, prefersReducedMotion]);
+
+  useEffect(() => {
+    if (items.length <= 1) {
+      if (trackIndex !== 0) {
+        setTrackIndex(0);
+      }
+      return;
+    }
+
+    if (trackIndex === safeTrackIndex) {
+      return;
+    }
+
+    setIsAnimating(false);
+    setIsTransitioning(false);
+    setTrackIndex(trackIndex < 0 ? items.length : trackIndex > items.length + 1 ? 1 : safeTrackIndex);
+  }, [items.length, safeTrackIndex, trackIndex]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !isTransitioning) {
+      return undefined;
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setIsTransitioning(false);
+
+      if (safeTrackIndex === 0) {
+        setIsAnimating(false);
+        setTrackIndex(items.length);
+        return;
+      }
+
+      if (safeTrackIndex === items.length + 1) {
+        setIsAnimating(false);
+        setTrackIndex(1);
+      }
+    }, 520);
+
+    return () => window.clearTimeout(timeoutId);
+  }, [isTransitioning, items.length, safeTrackIndex]);
 
   function handleTransitionEnd() {
+    if (!isTransitioning) return;
+    finalizeTransition();
+  }
+
+  function finalizeTransition() {
     if (items.length <= 1) return;
 
-    if (trackIndex === 0) {
+    setIsTransitioning(false);
+
+    if (safeTrackIndex === 0) {
       setIsAnimating(false);
       setTrackIndex(items.length);
       return;
     }
 
-    if (trackIndex === items.length + 1) {
+    if (safeTrackIndex === items.length + 1) {
       setIsAnimating(false);
       setTrackIndex(1);
     }
   }
 
   function advanceSlide(direction = 1) {
-    if (items.length <= 1) return;
+    if (items.length <= 1 || isTransitioning) return;
     setIsAnimating(true);
-    setTrackIndex((currentIndex) => currentIndex + direction);
+    setIsTransitioning(true);
+    setTrackIndex((currentIndex) => clamp(currentIndex + direction, 0, items.length + 1));
   }
 
   function handleMouseEnter() {
@@ -179,6 +234,8 @@ export default function MarketHeroCarousel() {
     setIsPaused(false);
   }
 
+  const visibleTrackIndex = items.length <= 1 ? activeIndex : safeTrackIndex;
+
   if (status === "loading") {
     return (
       <section aria-live="polite" className="market-hero-shell">
@@ -217,24 +274,34 @@ export default function MarketHeroCarousel() {
       onTouchStart={handleTouchStart}
     >
       <button
+        aria-label="Indicador anterior"
+        className="market-carousel-advance is-prev"
+        disabled={items.length <= 1 || isTransitioning}
+        onClick={() => advanceSlide(-1)}
+        type="button"
+      >
+        <ArrowIcon direction="left" />
+      </button>
+
+      <button
         aria-label="Siguiente indicador"
-        className="market-carousel-advance"
-        disabled={items.length <= 1}
+        className="market-carousel-advance is-next"
+        disabled={items.length <= 1 || isTransitioning}
         onClick={() => advanceSlide(1)}
         type="button"
       >
-        <ArrowForwardIcon />
+        <ArrowIcon direction="right" />
       </button>
 
       <div className="market-carousel-frame">
         <div
           className={isAnimating ? "market-carousel-track is-animated" : "market-carousel-track"}
           onTransitionEnd={handleTransitionEnd}
-          style={{ transform: `translateX(-${trackIndex * 100}%)` }}
+          style={{ transform: `translateX(-${visibleTrackIndex * 100}%)` }}
         >
           {carouselItems.map((item, index) => (
             <article
-              aria-hidden={index !== (items.length <= 1 ? activeIndex : trackIndex)}
+              aria-hidden={index !== visibleTrackIndex}
               className={item.isUnavailable ? "market-slide is-unavailable" : `market-slide is-${item.direction}`}
               key={`${item.id}-${index}`}
             >
@@ -248,11 +315,28 @@ export default function MarketHeroCarousel() {
                 </div>
 
                 <div>
-                  {item.isUnavailable ? <div aria-hidden="true" className="market-slide-value-placeholder" /> : <p className="market-slide-value">{item.displayValue}</p>}
+                  {item.isUnavailable ? (
+                    <div aria-hidden="true" className="market-slide-value-placeholder" />
+                  ) : Array.isArray(item.quoteCards) && item.quoteCards.length ? (
+                    <div className="market-quote-grid">
+                      {item.quoteCards.map((quote) => (
+                        <div className={`market-quote-card is-${quote.direction}`} key={`${item.id}-${quote.key}`}>
+                          <span className="market-quote-label">{quote.label}</span>
+                          <strong className="market-quote-value">{quote.displayValue}</strong>
+                          <span className={`market-quote-change ${quote.direction === "flat" ? "is-flat" : ""}`}>
+                            <TrendIcon direction={quote.direction} />
+                            {formatChangeLabel(quote)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="market-slide-value">{item.displayValue}</p>
+                  )}
                   <p className="market-slide-blurb">
                     {item.isUnavailable
                       ? item.errorMessage || "No pudimos cargar este indicador con la fuente actual."
-                      : `Tendencia ${describeDirection(item.direction)} con base en los ultimos puntos disponibles.`}
+                      : item.description || `Tendencia ${describeDirection(item.direction)} con base en los ultimos puntos disponibles.`}
                   </p>
                 </div>
 
@@ -272,10 +356,12 @@ export default function MarketHeroCarousel() {
                     <span className="market-update-chip">Sin datos disponibles</span>
                   ) : (
                     <>
-                      <span className={`market-change-chip ${item.direction === "flat" ? "is-flat" : ""}`}>
-                        <TrendIcon direction={item.direction} />
-                        {formatChangeLabel(item)}
-                      </span>
+                      {item.showAggregateChange === false ? null : (
+                        <span className={`market-change-chip ${item.direction === "flat" ? "is-flat" : ""}`}>
+                          <TrendIcon direction={item.direction} />
+                          {formatChangeLabel(item)}
+                        </span>
+                      )}
                       <span className="market-update-chip">Actualizado {formatUpdatedAt(item.updatedAt)}</span>
                     </>
                   )}
@@ -290,6 +376,39 @@ export default function MarketHeroCarousel() {
                       <strong>{item.source}</strong>
                       <span>Este indicador existe, pero su fuente no devolvio un valor utilizable.</span>
                     </div>
+                  ) : Array.isArray(item.chartKeys) && item.chartKeys.length ? (
+                    <>
+                      <div className="market-chart-legend">
+                        {item.chartKeys.map((line) => (
+                          <span className="market-chart-legend-chip" key={`${item.id}-${line.key}`}>
+                            <span aria-hidden="true" className="market-chart-legend-swatch" style={{ backgroundColor: line.color }} />
+                            {line.label}
+                          </span>
+                        ))}
+                      </div>
+                      <div className="market-chart-figure">
+                        <ResponsiveContainer height="100%" width="100%">
+                          <LineChart data={item.series}>
+                            {item.chartKeys.map((line) => (
+                              <Line
+                                connectNulls
+                                dataKey={line.key}
+                                dot={false}
+                                isAnimationActive={false}
+                                key={line.key}
+                                stroke={line.color}
+                                strokeWidth={3}
+                                type="monotone"
+                              />
+                            ))}
+                          </LineChart>
+                        </ResponsiveContainer>
+                      </div>
+                      <div className="market-slide-range">
+                        <span>{formatShortDate(item.series?.[0]?.date)}</span>
+                        <span>{formatShortDate(item.series?.[item.series.length - 1]?.date)}</span>
+                      </div>
+                    </>
                   ) : (
                     <>
                       <div className="market-chart-figure">
@@ -370,9 +489,16 @@ function TrendIcon({ direction }) {
   );
 }
 
-function ArrowForwardIcon() {
+function ArrowIcon({ direction = "right" }) {
   return (
-    <svg fill="none" height="18" viewBox="0 0 18 18" width="18" xmlns="http://www.w3.org/2000/svg">
+    <svg
+      fill="none"
+      height="18"
+      style={direction === "left" ? { transform: "scaleX(-1)" } : undefined}
+      viewBox="0 0 18 18"
+      width="18"
+      xmlns="http://www.w3.org/2000/svg"
+    >
       <path d="M4.5 9h9" stroke="currentColor" strokeLinecap="round" strokeWidth="1.7" />
       <path d="m9.75 5.25 3.75 3.75-3.75 3.75" stroke="currentColor" strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.7" />
     </svg>
@@ -415,10 +541,20 @@ function formatChangeLabel(item) {
 }
 
 function formatUpdatedAt(value) {
+  const rawValue = String(value ?? "").trim();
   const candidate = toDisplayDate(value);
 
   if (!candidate) {
     return "sin hora";
+  }
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) {
+    return new Intl.DateTimeFormat("es-CL", {
+      day: "2-digit",
+      month: "short",
+    })
+      .format(candidate)
+      .replace(",", "");
   }
 
   return new Intl.DateTimeFormat("es-CL", {
@@ -457,6 +593,10 @@ function formatNumber(value, decimals = 2) {
 
 function modulo(value, total) {
   return ((value % total) + total) % total;
+}
+
+function clamp(value, min, max) {
+  return Math.min(Math.max(value, min), max);
 }
 
 function toDisplayDate(value) {
