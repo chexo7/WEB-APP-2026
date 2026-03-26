@@ -254,6 +254,17 @@ export default function MarketHeroCarousel() {
                   </p>
                 </div>
 
+                {Array.isArray(item.facts) && item.facts.length ? (
+                  <div className="market-slide-facts">
+                    {item.facts.map((fact) => (
+                      <span className="market-fact-chip" key={`${item.id}-${fact.label}`}>
+                        <strong>{fact.label}</strong>
+                        <span>{fact.value}</span>
+                      </span>
+                    ))}
+                  </div>
+                ) : null}
+
                 <div className="market-slide-meta">
                   <span className={`market-change-chip ${item.direction === "flat" ? "is-flat" : ""}`}>
                     <TrendIcon direction={item.direction} />

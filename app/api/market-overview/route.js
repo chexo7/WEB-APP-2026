@@ -1,6 +1,11 @@
 const HALF_HOUR_IN_SECONDS = 60 * 30;
 const MINDICADOR_API_ROOT = "https://mindicador.cl/api";
-const ALPHA_VANTAGE_API_ROOT = "https://www.alphavantage.co/query";
+const COINBASE_API_ROOT = "https://api.coinbase.com/v2";
+const COINBASE_EXCHANGE_API_ROOT = "https://api.exchange.coinbase.com";
+const EIA_HISTORY_PAGES = {
+  brent: "https://www.eia.gov/dnav/pet/hist/RBRTED.htm",
+  wti: "https://www.eia.gov/dnav/pet/hist/RWTCD.htm",
+};
 
 export const runtime = "nodejs";
 export const revalidate = 1800;
@@ -8,15 +13,31 @@ export const revalidate = 1800;
 export async function GET() {
   const warnings = [];
 
-  const [mindicadorSummaryResult, dollarSeriesResult, ufSeriesResult] = await Promise.allSettled([
+  const [
+    mindicadorSummaryResult,
+    dollarSeriesResult,
+    ufSeriesResult,
+    bitcoinSpotResult,
+    bitcoinCandlesResult,
+    brentHistoryResult,
+    wtiHistoryResult,
+  ] = await Promise.allSettled([
     fetchJson(MINDICADOR_API_ROOT),
     fetchJson(`${MINDICADOR_API_ROOT}/dolar`),
     fetchJson(`${MINDICADOR_API_ROOT}/uf`),
+    fetchJson(`${COINBASE_API_ROOT}/prices/BTC-USD/spot`),
+    fetchJson(`${COINBASE_EXCHANGE_API_ROOT}/products/BTC-USD/candles?granularity=86400`),
+    fetchText(EIA_HISTORY_PAGES.brent),
+    fetchText(EIA_HISTORY_PAGES.wti),
   ]);
 
   const mindicadorSummary = unwrapSettledValue(mindicadorSummaryResult, "Mindicador resumen", warnings);
   const dollarSeriesPayload = unwrapSettledValue(dollarSeriesResult, "Mindicador dolar", warnings);
   const ufSeriesPayload = unwrapSettledValue(ufSeriesResult, "Mindicador UF", warnings);
+  const bitcoinSpotPayload = unwrapSettledValue(bitcoinSpotResult, "Coinbase Bitcoin spot", warnings);
+  const bitcoinCandlesPayload = unwrapSettledValue(bitcoinCandlesResult, "Coinbase Bitcoin velas", warnings);
+  const brentHistoryHtml = unwrapSettledValue(brentHistoryResult, "EIA Brent", warnings);
+  const wtiHistoryHtml = unwrapSettledValue(wtiHistoryResult, "EIA WTI", warnings);
 
   const usdClpItem = buildMindicadorMetric({
     id: "usd-clp",
@@ -38,58 +59,37 @@ export async function GET() {
     decimals: 2,
   });
 
-  const alphaVantageKey = normalizeEnvValue(process.env.ALPHA_VANTAGE_API_KEY);
-  let brentItem = null;
-  let wtiItem = null;
-  let bitcoinItem = null;
-
-  if (alphaVantageKey) {
-    const [brentResult, wtiResult, bitcoinQuoteResult, bitcoinSeriesResult] = await Promise.allSettled([
-      fetchAlphaVantage({ functionName: "BRENT", interval: "daily", apiKey: alphaVantageKey }),
-      fetchAlphaVantage({ functionName: "WTI", interval: "daily", apiKey: alphaVantageKey }),
-      fetchAlphaVantage({
-        functionName: "CURRENCY_EXCHANGE_RATE",
-        apiKey: alphaVantageKey,
-        from_currency: "BTC",
-        to_currency: "USD",
-      }),
-      fetchAlphaVantage({
-        functionName: "DIGITAL_CURRENCY_DAILY",
-        apiKey: alphaVantageKey,
-        symbol: "BTC",
-        market: "USD",
-      }),
-    ]);
-
-    const brentPayload = unwrapSettledValue(brentResult, "Alpha Vantage Brent", warnings);
-    const wtiPayload = unwrapSettledValue(wtiResult, "Alpha Vantage WTI", warnings);
-    const bitcoinQuotePayload = unwrapSettledValue(bitcoinQuoteResult, "Alpha Vantage Bitcoin quote", warnings);
-    const bitcoinSeriesPayload = unwrapSettledValue(bitcoinSeriesResult, "Alpha Vantage Bitcoin serie", warnings);
-
-    brentItem = buildAlphaCommodityMetric({
-      id: "brent-oil",
-      label: "Petroleo Brent",
-      source: "Alpha Vantage",
-      payload: brentPayload,
-    });
-
-    wtiItem = buildAlphaCommodityMetric({
-      id: "wti-oil",
-      label: "Petroleo WTI",
-      source: "Alpha Vantage",
-      payload: wtiPayload,
-    });
-
-    bitcoinItem = buildBitcoinMetric({
-      id: "bitcoin-usd",
-      label: "Bitcoin / USD",
-      source: "Alpha Vantage",
-      quotePayload: bitcoinQuotePayload,
-      seriesPayload: bitcoinSeriesPayload,
-    });
-  } else {
-    warnings.push("Falta ALPHA_VANTAGE_API_KEY para cargar bitcoin y petroleo.");
+  if (ufItem && usdClpItem?.value) {
+    const ufUsdValue = ufItem.value / usdClpItem.value;
+    ufItem.facts = [
+      {
+        label: "Relacion UF / USD",
+        value: `${formatUsdValue(ufUsdValue, 2)} por UF`,
+      },
+    ];
   }
+
+  const brentItem = buildEiaOilMetric({
+    id: "brent-oil",
+    label: "Petroleo Brent",
+    source: "EIA",
+    historyHtml: brentHistoryHtml,
+  });
+
+  const wtiItem = buildEiaOilMetric({
+    id: "wti-oil",
+    label: "Petroleo WTI",
+    source: "EIA",
+    historyHtml: wtiHistoryHtml,
+  });
+
+  const bitcoinItem = buildCoinbaseBitcoinMetric({
+    id: "bitcoin-usd",
+    label: "Bitcoin / USD",
+    source: "Coinbase",
+    spotPayload: bitcoinSpotPayload,
+    candlesPayload: bitcoinCandlesPayload,
+  });
 
   const items = [usdClpItem, ufItem, brentItem, wtiItem, bitcoinItem].filter(Boolean);
   const asOf =
@@ -118,6 +118,7 @@ async function fetchJson(url) {
   const response = await fetch(url, {
     headers: {
       Accept: "application/json",
+      "User-Agent": "web-app-2026",
     },
     next: {
       revalidate: HALF_HOUR_IN_SECONDS,
@@ -133,19 +134,22 @@ async function fetchJson(url) {
   return payload;
 }
 
-async function fetchAlphaVantage({ functionName, apiKey, ...params }) {
-  const searchParams = new URLSearchParams({
-    function: functionName,
-    apikey: apiKey,
+async function fetchText(url) {
+  const response = await fetch(url, {
+    headers: {
+      Accept: "text/html, text/plain;q=0.9, */*;q=0.8",
+      "User-Agent": "web-app-2026",
+    },
+    next: {
+      revalidate: HALF_HOUR_IN_SECONDS,
+    },
   });
 
-  Object.entries(params).forEach(([key, value]) => {
-    if (value != null && value !== "") {
-      searchParams.set(key, String(value));
-    }
-  });
+  if (!response.ok) {
+    throw new Error(`HTTP ${response.status}`);
+  }
 
-  return fetchJson(`${ALPHA_VANTAGE_API_ROOT}?${searchParams.toString()}`);
+  return response.text();
 }
 
 function assertProviderPayload(sourceLabel, payload) {
@@ -193,30 +197,9 @@ function buildMindicadorMetric({ id, label, source, summaryNode, seriesPayload, 
   });
 }
 
-function buildAlphaCommodityMetric({ id, label, source, payload }) {
-  const series = normalizeDatedSeries(payload?.data).slice(-14);
-  const latestPoint = series[series.length - 1];
-
-  if (!latestPoint) {
-    return null;
-  }
-
-  return buildMarketMetric({
-    id,
-    label,
-    source,
-    unitLabel: "USD",
-    decimals: 2,
-    currentValue: latestPoint.value,
-    updatedAt: latestPoint.date,
-    series,
-    formatStyle: "usd",
-  });
-}
-
-function buildBitcoinMetric({ id, label, source, quotePayload, seriesPayload }) {
-  const historicalSeries = normalizeDigitalCurrencySeries(seriesPayload).slice(-14);
-  const quote = normalizeBitcoinQuote(quotePayload);
+function buildCoinbaseBitcoinMetric({ id, label, source, spotPayload, candlesPayload }) {
+  const historicalSeries = normalizeCoinbaseCandles(candlesPayload).slice(-14);
+  const quote = normalizeCoinbaseSpot(spotPayload);
 
   let composedSeries = historicalSeries.slice();
   let currentValue = historicalSeries[historicalSeries.length - 1]?.value ?? null;
@@ -250,7 +233,28 @@ function buildBitcoinMetric({ id, label, source, quotePayload, seriesPayload }) 
   });
 }
 
-function buildMarketMetric({ id, label, source, unitLabel, decimals, currentValue, updatedAt, series, formatStyle }) {
+function buildEiaOilMetric({ id, label, source, historyHtml }) {
+  const series = parseEiaDailyHistorySeries(historyHtml).slice(-14);
+  const latestPoint = series[series.length - 1];
+
+  if (!latestPoint) {
+    return null;
+  }
+
+  return buildMarketMetric({
+    id,
+    label,
+    source,
+    unitLabel: "USD",
+    decimals: 2,
+    currentValue: latestPoint.value,
+    updatedAt: latestPoint.date,
+    series,
+    formatStyle: "usd",
+  });
+}
+
+function buildMarketMetric({ id, label, source, unitLabel, decimals, currentValue, updatedAt, series, formatStyle, facts = [] }) {
   const normalizedSeries = Array.isArray(series) ? series.filter(isValidSeriesPoint).slice(-14) : [];
   const comparisonPoint =
     normalizedSeries[normalizedSeries.length - 2] ||
@@ -274,6 +278,7 @@ function buildMarketMetric({ id, label, source, unitLabel, decimals, currentValu
     changePct,
     updatedAt: normalizeDateTime(updatedAt) ?? normalizeDateOnly(updatedAt) ?? new Date().toISOString(),
     series: normalizedSeries,
+    facts,
   };
 }
 
@@ -287,30 +292,8 @@ function normalizeDatedSeries(series) {
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function normalizeDigitalCurrencySeries(payload) {
-  const seriesPayload = payload?.["Time Series (Digital Currency Daily)"];
-
-  if (!seriesPayload || typeof seriesPayload !== "object") {
-    return [];
-  }
-
-  return Object.entries(seriesPayload)
-    .map(([dateKey, point]) => ({
-      date: normalizeDateOnly(dateKey),
-      value: readDigitalCurrencyClose(point),
-    }))
-    .filter(isValidSeriesPoint)
-    .sort((left, right) => left.date.localeCompare(right.date));
-}
-
-function normalizeBitcoinQuote(payload) {
-  const exchangeRate = payload?.["Realtime Currency Exchange Rate"];
-
-  if (!exchangeRate || typeof exchangeRate !== "object") {
-    return null;
-  }
-
-  const value = toFiniteNumber(exchangeRate["5. Exchange Rate"]);
+function normalizeCoinbaseSpot(payload) {
+  const value = toFiniteNumber(payload?.data?.amount);
 
   if (value == null) {
     return null;
@@ -318,33 +301,131 @@ function normalizeBitcoinQuote(payload) {
 
   return {
     value,
-    updatedAt: normalizeDateTime(exchangeRate["6. Last Refreshed"]) || localDateKey(),
+    updatedAt: new Date().toISOString(),
   };
 }
 
-function readDigitalCurrencyClose(point) {
-  if (!point || typeof point !== "object") {
-    return null;
+function normalizeCoinbaseCandles(payload) {
+  return (Array.isArray(payload) ? payload : [])
+    .map((entry) => ({
+      date: unixTimestampToDateKey(entry?.[0]),
+      value: toFiniteNumber(entry?.[4]),
+    }))
+    .filter(isValidSeriesPoint)
+    .sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function parseEiaDailyHistorySeries(html) {
+  const lines = extractReadableLines(html);
+  const linePattern = /^(\d{4})\s+([A-Za-z]{3})-\s*(\d{1,2})\s+to\s+([A-Za-z]{3})-\s*(\d{1,2})\s+(.+)$/;
+  const points = [];
+
+  lines.forEach((line) => {
+    const match = line.match(linePattern);
+
+    if (!match) {
+      return;
+    }
+
+    const [, startYearText, startMonthLabel, startDayText, endMonthLabel, endDayText, valueText] = match;
+    const startYear = Number(startYearText);
+    const startMonth = monthLabelToNumber(startMonthLabel);
+    const endMonth = monthLabelToNumber(endMonthLabel);
+    const startDay = Number(startDayText);
+    const endDay = Number(endDayText);
+
+    if (!startMonth || !endMonth || !Number.isFinite(startDay) || !Number.isFinite(endDay)) {
+      return;
+    }
+
+    const values = valueText
+      .split(/\s+/)
+      .map((token) => toFiniteNumber(token.replace(",", "")))
+      .filter((value) => value != null);
+
+    if (!values.length) {
+      return;
+    }
+
+    const startDate = new Date(Date.UTC(startYear, startMonth - 1, startDay));
+    const endYear = endMonth < startMonth ? startYear + 1 : startYear;
+    const endDate = new Date(Date.UTC(endYear, endMonth - 1, endDay));
+    const businessDays = collectBusinessDays(startDate, endDate);
+    const usableDates = (businessDays.length >= values.length ? businessDays.slice(-values.length) : businessDays).slice(-values.length);
+    const usableValues = values.slice(-usableDates.length);
+
+    usableDates.forEach((date, index) => {
+      points.push({
+        date: localDateKey(date),
+        value: usableValues[index],
+      });
+    });
+  });
+
+  return points
+    .filter(isValidSeriesPoint)
+    .sort((left, right) => left.date.localeCompare(right.date));
+}
+
+function extractReadableLines(html) {
+  const text = String(html ?? "")
+    .replace(/<\s*br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|tr|li|pre|table|h\d|td|th|section)>/gi, "\n")
+    .replace(/<script[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;|&#160;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">");
+
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\s+/g, " ").trim())
+    .filter(Boolean);
+}
+
+function collectBusinessDays(startDate, endDate) {
+  const dates = [];
+  const cursor = new Date(startDate.getTime());
+
+  while (cursor <= endDate) {
+    const weekday = cursor.getUTCDay();
+
+    if (weekday !== 0 && weekday !== 6) {
+      dates.push(new Date(cursor.getTime()));
+    }
+
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
   }
 
-  const closeEntry = Object.entries(point).find(([key]) => key.toLowerCase().includes("close (usd)"));
+  return dates;
+}
 
-  if (closeEntry) {
-    return toFiniteNumber(closeEntry[1]);
-  }
+function monthLabelToNumber(label) {
+  const normalized = String(label ?? "").trim().slice(0, 3).toLowerCase();
 
-  const fallbackEntry = Object.entries(point).find(([key]) => key.toLowerCase().includes("close"));
-  return toFiniteNumber(fallbackEntry?.[1]);
+  return {
+    jan: 1,
+    feb: 2,
+    mar: 3,
+    apr: 4,
+    may: 5,
+    jun: 6,
+    jul: 7,
+    aug: 8,
+    sep: 9,
+    oct: 10,
+    nov: 11,
+    dec: 12,
+  }[normalized] ?? 0;
 }
 
 function formatMetricValue(value, unitLabel, decimals, formatStyle) {
   if (formatStyle === "usd") {
-    return new Intl.NumberFormat("es-CL", {
-      style: "currency",
-      currency: "USD",
-      minimumFractionDigits: decimals,
-      maximumFractionDigits: decimals,
-    }).format(value);
+    return formatUsdValue(value, decimals);
   }
 
   return `${new Intl.NumberFormat("es-CL", {
@@ -353,10 +434,29 @@ function formatMetricValue(value, unitLabel, decimals, formatStyle) {
   }).format(value)} ${unitLabel}`;
 }
 
+function formatUsdValue(value, decimals = 2) {
+  return new Intl.NumberFormat("es-CL", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  }).format(value);
+}
+
 function resolveDirection(delta) {
   if (delta > 0.004) return "up";
   if (delta < -0.004) return "down";
   return "flat";
+}
+
+function unixTimestampToDateKey(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "";
+  }
+
+  return localDateKey(new Date(numericValue * 1000));
 }
 
 function roundToDecimals(value, decimals = 2) {
@@ -393,11 +493,6 @@ function normalizeDateTime(value) {
   }
 
   return candidate.toISOString();
-}
-
-function normalizeEnvValue(value) {
-  const text = String(value ?? "").trim();
-  return text || "";
 }
 
 function localDateKey(date = new Date()) {
