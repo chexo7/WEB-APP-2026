@@ -2503,8 +2503,20 @@ button {
 .cashflow-final-row td,
 .cashflow-final-row .cashflow-row-label {
   background: #f4f8ff;
-  color: #0a67f2;
   font-weight: 800;
+}
+
+.cashflow-final-row .cashflow-row-label,
+.cashflow-final-row td.cashflow-balance-high {
+  color: #0a67f2;
+}
+
+.cashflow-final-row td.cashflow-balance-medium {
+  color: #1f9d57;
+}
+
+.cashflow-final-row td.cashflow-balance-low {
+  color: #d92d20;
 }
 
 .cashflow-data-table .today-column {

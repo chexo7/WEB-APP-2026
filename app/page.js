@@ -2533,13 +2533,21 @@ export default function HomePage() {
                       {cashflowModel.rows.map((row) => (
                         <tr className={row.className} key={row.key}>
                           {cashflowModel.dates.map((date) => (
+                          (() => {
+                            const value = row.values?.[date.key] ?? 0;
+                            const toneClass = getCashflowValueToneClass(row.key, value);
+                            const cellClassName = [date.key === cashflowModel.todayKey ? "today-column" : "", toneClass].filter(Boolean).join(" ");
+
+                            return (
                           <td
-                            className={date.key === cashflowModel.todayKey ? "today-column" : ""}
+                            className={cellClassName}
                             key={`${row.key}-${date.key}`}
                             onMouseEnter={(event) => showCashflowTooltip(event, row, date)}
                           >
-                            {formatCashflowAmount(row.values?.[date.key] ?? 0)}
+                            {formatCashflowAmount(value)}
                           </td>
+                            );
+                          })()
                           ))}
                         </tr>
                       ))}
@@ -4739,6 +4747,22 @@ function makeCashflowRow(key, label, values, details, className = "") {
     details,
     className,
   };
+}
+
+function getCashflowValueToneClass(rowKey, value) {
+  if (rowKey !== "closingBalance") {
+    return "";
+  }
+
+  if (value >= 1000) {
+    return "cashflow-balance-high";
+  }
+
+  if (value >= 1) {
+    return "cashflow-balance-medium";
+  }
+
+  return "cashflow-balance-low";
 }
 
 function buildRowDetails(linesByDate, totalsByDate, emptyLabel) {
