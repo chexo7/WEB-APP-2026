@@ -35,6 +35,7 @@ import { buildExpenseImportMatchKey, parseSchwabPostedExpenseTransactions } from
 import {
   validateAdjustmentRecord,
   validateAnalysisSettingsRecord,
+  validateBalanceSnapshotRecord,
   validateBudgetRecord,
   validateExpenseRecord,
   validateIncomeRecord,
@@ -113,11 +114,14 @@ export default function HomePage() {
   const [budgetForm, setBudgetForm] = useState(defaultBudgetForm());
   const [incomeForm, setIncomeForm] = useState(defaultIncomeForm());
   const [adjustmentForm, setAdjustmentForm] = useState(defaultAdjustmentForm());
+  const [balanceSnapshotForm, setBalanceSnapshotForm] = useState(defaultBalanceSnapshotForm());
   const [settingsForm, setSettingsForm] = useState(defaultAnalysisSettings());
   const [editingExpenseId, setEditingExpenseId] = useState("");
   const [editingBudgetId, setEditingBudgetId] = useState("");
   const [editingIncomeId, setEditingIncomeId] = useState("");
   const [editingAdjustmentId, setEditingAdjustmentId] = useState("");
+  const [editingBalanceSnapshotId, setEditingBalanceSnapshotId] = useState("");
+  const [isBalanceSnapshotAdjustmentCustomized, setIsBalanceSnapshotAdjustmentCustomized] = useState(false);
   const [isInitializing, setIsInitializing] = useState(false);
   const [saveState, setSaveState] = useState("idle");
   const [dataError, setDataError] = useState("");
@@ -193,9 +197,12 @@ export default function HomePage() {
       setBudgetForm(defaultBudgetForm());
       setIncomeForm(defaultIncomeForm());
       setAdjustmentForm(defaultAdjustmentForm());
+      setBalanceSnapshotForm(defaultBalanceSnapshotForm());
       setSettingsForm(defaultAnalysisSettings());
       setEditingIncomeId("");
       setEditingAdjustmentId("");
+      setEditingBalanceSnapshotId("");
+      setIsBalanceSnapshotAdjustmentCustomized(false);
       setScheduleModalIncomeId("");
       setScheduleOccurrenceDate("");
       setScheduleAdjustedDate("");
@@ -298,11 +305,14 @@ export default function HomePage() {
       setBudgetForm(defaultBudgetForm());
       setIncomeForm(defaultIncomeForm());
       setAdjustmentForm(defaultAdjustmentForm());
+      setBalanceSnapshotForm(defaultBalanceSnapshotForm());
       setSettingsForm(nextWorkspace.analysisSettings ?? defaultAnalysisSettings());
       setEditingExpenseId("");
       setEditingBudgetId("");
       setEditingIncomeId("");
       setEditingAdjustmentId("");
+      setEditingBalanceSnapshotId("");
+      setIsBalanceSnapshotAdjustmentCustomized(false);
       setScheduleModalIncomeId("");
       setScheduleOccurrenceDate("");
       setScheduleAdjustedDate("");
@@ -325,6 +335,10 @@ export default function HomePage() {
   const budgetEntries = useMemo(() => Object.entries(draft.budgets ?? {}).map(([id, value]) => ({ id, ...value })), [draft.budgets]);
   const incomeEntries = useMemo(() => Object.entries(draft.incomes).map(([id, value]) => ({ id, ...value })), [draft.incomes]);
   const adjustmentEntries = useMemo(() => Object.entries(draft.adjustments ?? {}).map(([id, value]) => ({ id, ...value })), [draft.adjustments]);
+  const balanceSnapshotEntries = useMemo(
+    () => Object.entries(draft.balanceSnapshots ?? {}).map(([id, value]) => ({ id, ...value })),
+    [draft.balanceSnapshots],
+  );
   const expenses = useMemo(() => sortCollection(expenseEntries, expenseSort, getExpenseSortValue), [expenseEntries, expenseSort]);
   const budgets = useMemo(
     () =>
@@ -347,6 +361,15 @@ export default function HomePage() {
   const adjustments = useMemo(
     () => sortCollection(adjustmentEntries, adjustmentSort, getAdjustmentSortValue),
     [adjustmentEntries, adjustmentSort],
+  );
+  const balanceSnapshots = useMemo(
+    () =>
+      [...balanceSnapshotEntries].sort((left, right) => {
+        const dateResult = compareSortValues(dateToTimestamp(left.date), dateToTimestamp(right.date), "desc");
+        if (dateResult !== 0) return dateResult;
+        return (Number(right.updatedAt) || Number(right.createdAt) || 0) - (Number(left.updatedAt) || Number(left.createdAt) || 0);
+      }),
+    [balanceSnapshotEntries],
   );
 
   const hasUnsavedChanges = JSON.stringify(sanitizeWorkspace(draft)) !== JSON.stringify(sanitizeWorkspace(selectedVersion?.payload));
@@ -393,10 +416,36 @@ export default function HomePage() {
         expenses,
         incomes,
         adjustments,
+        balanceSnapshots,
         currentDateKey: todayKey,
         analysisSettings,
       }),
-    [adjustments, analysisSettings, budgets, expenses, incomes, todayKey],
+    [adjustments, analysisSettings, balanceSnapshots, budgets, expenses, incomes, todayKey],
+  );
+  const balanceSnapshotOverview = useMemo(
+    () =>
+      buildBalanceSnapshotOverviewModel({
+        expenses,
+        incomes,
+        adjustments,
+        balanceSnapshots,
+        analysisSettings,
+        currentForm: balanceSnapshotForm,
+        editingSnapshotId: editingBalanceSnapshotId,
+      }),
+    [
+      adjustments,
+      analysisSettings,
+      balanceSnapshotForm.bofaUsd,
+      balanceSnapshotForm.cashUsd,
+      balanceSnapshotForm.chileUsd,
+      balanceSnapshotForm.date,
+      balanceSnapshotForm.schwabUsd,
+      balanceSnapshots,
+      editingBalanceSnapshotId,
+      expenses,
+      incomes,
+    ],
   );
   const cashflowBaseModel = useMemo(
     () =>
@@ -423,7 +472,7 @@ export default function HomePage() {
   }, [cashflowBaseModel, cashflowModelCache, cashflowResolution, weeklyCashflowModel]);
   const cashflowFirstDateKey = cashflowModel.dates[0]?.key ?? "";
   const cashflowLastDateKey = cashflowModel.dates[cashflowModel.dates.length - 1]?.key ?? "";
-  const draftRecordCount = expenses.length + budgets.length + incomes.length + adjustments.length;
+  const draftRecordCount = expenses.length + budgets.length + incomes.length + adjustments.length + balanceSnapshots.length;
   const scheduleModalIncome = useMemo(
     () => incomes.find((income) => income.id === scheduleModalIncomeId) ?? incomeEntries.find((income) => income.id === scheduleModalIncomeId) ?? null,
     [incomeEntries, incomes, scheduleModalIncomeId],
@@ -437,6 +486,23 @@ export default function HomePage() {
     scheduleOccurrenceOptions.find((item) => item.originalDate === scheduleOccurrenceDate) ??
     scheduleOverrideRecords.find((item) => item.originalDate === scheduleOccurrenceDate) ??
     null;
+
+  useEffect(() => {
+    if (isBalanceSnapshotAdjustmentCustomized) {
+      return;
+    }
+
+    const nextAmount = formatEditableAmount(balanceSnapshotOverview.form.suggestedAdjustment);
+
+    setBalanceSnapshotForm((current) => (
+      current.adjustmentAmount === nextAmount
+        ? current
+        : {
+            ...current,
+            adjustmentAmount: nextAmount,
+          }
+    ));
+  }, [balanceSnapshotOverview.form.suggestedAdjustment, isBalanceSnapshotAdjustmentCustomized]);
 
   useEffect(() => {
     if (!budgetMonthlyOverview.monthOptions.length) return;
@@ -794,9 +860,11 @@ export default function HomePage() {
       adjustments: {
         ...(current.adjustments ?? {}),
         [adjustmentId]: {
+          ...(current.adjustments?.[adjustmentId] ?? {}),
           date: adjustmentForm.date,
           amount: Number(adjustmentForm.amount),
           createdAt: current.adjustments?.[adjustmentId]?.createdAt ?? Date.now(),
+          updatedAt: Date.now(),
         },
       },
     }));
@@ -806,6 +874,104 @@ export default function HomePage() {
     setSaveState("idle");
     setDataError("");
     setSuccessMessage("");
+  };
+
+  const resetBalanceSnapshotEditor = () => {
+    setBalanceSnapshotForm(defaultBalanceSnapshotForm());
+    setEditingBalanceSnapshotId("");
+    setIsBalanceSnapshotAdjustmentCustomized(false);
+  };
+
+  const saveBalanceSnapshotToDraft = (applyLinkedAdjustment = true) => {
+    const nextSnapshot = {
+      date: String(balanceSnapshotForm.date ?? "").trim(),
+      cashUsd: parseEditableAmount(balanceSnapshotForm.cashUsd),
+      chileUsd: parseEditableAmount(balanceSnapshotForm.chileUsd),
+      schwabUsd: parseEditableAmount(balanceSnapshotForm.schwabUsd),
+      bofaUsd: parseEditableAmount(balanceSnapshotForm.bofaUsd),
+    };
+    const error = validateBalanceSnapshot(nextSnapshot);
+
+    if (error) {
+      setDataError(error);
+      return;
+    }
+
+    const duplicateSnapshotId = findBalanceSnapshotIdByDate(draft.balanceSnapshots, nextSnapshot.date, editingBalanceSnapshotId);
+
+    if (duplicateSnapshotId) {
+      setDataError("Ya existe un saldo observado para esa fecha. Modifica el registro existente en vez de crear otro.");
+      return;
+    }
+
+    const resolvedAdjustmentAmount = isBalanceSnapshotAdjustmentCustomized
+      ? parseEditableAmount(balanceSnapshotForm.adjustmentAmount)
+      : roundCurrencyValue(balanceSnapshotOverview.form.suggestedAdjustment);
+
+    if (resolvedAdjustmentAmount == null) {
+      setDataError("El cuadre a aplicar debe ser un numero valido.");
+      return;
+    }
+
+    const nextAdjustmentAmount = applyLinkedAdjustment ? roundCurrencyValue(resolvedAdjustmentAmount) : 0;
+    const snapshotId = editingBalanceSnapshotId || localId("balanceSnapshot");
+
+    setDraft((current) => {
+      const currentSnapshot = current.balanceSnapshots?.[snapshotId] ?? null;
+      const currentLinkedAdjustmentId = String(currentSnapshot?.linkedAdjustmentId ?? "").trim();
+      const nextAdjustments = { ...(current.adjustments ?? {}) };
+      let nextLinkedAdjustmentId = currentLinkedAdjustmentId;
+
+      if (currentLinkedAdjustmentId && (!applyLinkedAdjustment || areCurrencyAmountsEqual(nextAdjustmentAmount, 0))) {
+        delete nextAdjustments[currentLinkedAdjustmentId];
+        nextLinkedAdjustmentId = "";
+      }
+
+      if (applyLinkedAdjustment && !areCurrencyAmountsEqual(nextAdjustmentAmount, 0)) {
+        const adjustmentId = currentLinkedAdjustmentId || localId("adjustment");
+        const existingAdjustment = current.adjustments?.[adjustmentId];
+
+        nextAdjustments[adjustmentId] = {
+          ...(existingAdjustment ?? {}),
+          amount: nextAdjustmentAmount,
+          createdAt: existingAdjustment?.createdAt ?? Date.now(),
+          date: nextSnapshot.date,
+          label: "Cuadre desde saldo observado",
+          linkedBalanceSnapshotId: snapshotId,
+          sourceType: "balance-snapshot",
+          updatedAt: Date.now(),
+        };
+        nextLinkedAdjustmentId = adjustmentId;
+      }
+
+      return {
+        ...current,
+        adjustments: nextAdjustments,
+        balanceSnapshots: {
+          ...(current.balanceSnapshots ?? {}),
+          [snapshotId]: {
+            ...(currentSnapshot ?? {}),
+            bofaUsd: nextSnapshot.bofaUsd,
+            cashUsd: nextSnapshot.cashUsd,
+            chileUsd: nextSnapshot.chileUsd,
+            createdAt: currentSnapshot?.createdAt ?? Date.now(),
+            date: nextSnapshot.date,
+            linkedAdjustmentId: nextLinkedAdjustmentId,
+            schwabUsd: nextSnapshot.schwabUsd,
+            updatedAt: Date.now(),
+          },
+        },
+      };
+    });
+
+    resetBalanceSnapshotEditor();
+    setSaveState("idle");
+    setDataError("");
+    setSuccessMessage(
+      applyLinkedAdjustment
+        ? "Se guardo el saldo observado y se actualizo el cuadre ligado al grafico."
+        : "Se guardo el saldo observado sin aplicar cuadre.",
+    );
   };
 
   const editExpense = (expenseId) => {
@@ -1111,6 +1277,28 @@ export default function HomePage() {
     setActiveTab("reconciliation");
   };
 
+  const editBalanceSnapshot = (snapshotId) => {
+    const snapshot = draft.balanceSnapshots?.[snapshotId];
+    if (!snapshot) return;
+
+    const snapshotSummary = balanceSnapshotOverview.snapshots.find((item) => item.id === snapshotId);
+    const nextAdjustmentAmount = snapshotSummary?.hasAppliedAdjustment
+      ? snapshotSummary.appliedAdjustmentAmount
+      : snapshotSummary?.suggestedAdjustment ?? 0;
+
+    setBalanceSnapshotForm({
+      adjustmentAmount: formatEditableAmount(nextAdjustmentAmount),
+      bofaUsd: formatEditableAmount(snapshot.bofaUsd),
+      cashUsd: formatEditableAmount(snapshot.cashUsd),
+      chileUsd: formatEditableAmount(snapshot.chileUsd),
+      date: snapshot.date ?? localDate(),
+      schwabUsd: formatEditableAmount(snapshot.schwabUsd),
+    });
+    setEditingBalanceSnapshotId(snapshotId);
+    setIsBalanceSnapshotAdjustmentCustomized(Boolean(snapshotSummary?.hasAppliedAdjustment && !snapshotSummary?.matchesSuggestion));
+    setActiveTab("budgets");
+  };
+
   const deleteExpense = (expenseId) => {
     setDraft((current) => {
       const nextExpenses = { ...current.expenses };
@@ -1145,8 +1333,53 @@ export default function HomePage() {
     setDraft((current) => {
       const nextAdjustments = { ...(current.adjustments ?? {}) };
       delete nextAdjustments[adjustmentId];
-      return { ...current, adjustments: nextAdjustments };
+      const nextBalanceSnapshots = Object.fromEntries(
+        Object.entries(current.balanceSnapshots ?? {}).map(([snapshotId, value]) => [
+          snapshotId,
+          value?.linkedAdjustmentId === adjustmentId
+            ? {
+                ...value,
+                linkedAdjustmentId: "",
+                updatedAt: Date.now(),
+              }
+            : value,
+        ]),
+      );
+
+      return { ...current, adjustments: nextAdjustments, balanceSnapshots: nextBalanceSnapshots };
     });
+    setSaveState("idle");
+    setSuccessMessage("");
+  };
+
+  const deleteBalanceSnapshot = (snapshotId) => {
+    if (editingBalanceSnapshotId === snapshotId) {
+      resetBalanceSnapshotEditor();
+    }
+
+    setDraft((current) => {
+      const nextBalanceSnapshots = { ...(current.balanceSnapshots ?? {}) };
+      const snapshot = nextBalanceSnapshots[snapshotId];
+
+      if (!snapshot) {
+        return current;
+      }
+
+      delete nextBalanceSnapshots[snapshotId];
+
+      const nextAdjustments = { ...(current.adjustments ?? {}) };
+
+      if (snapshot.linkedAdjustmentId) {
+        delete nextAdjustments[snapshot.linkedAdjustmentId];
+      }
+
+      return {
+        ...current,
+        adjustments: nextAdjustments,
+        balanceSnapshots: nextBalanceSnapshots,
+      };
+    });
+
     setSaveState("idle");
     setSuccessMessage("");
   };
@@ -1210,11 +1443,14 @@ export default function HomePage() {
     setBudgetForm(defaultBudgetForm());
     setIncomeForm(defaultIncomeForm());
     setAdjustmentForm(defaultAdjustmentForm());
+    setBalanceSnapshotForm(defaultBalanceSnapshotForm());
     setSettingsForm(nextWorkspace.analysisSettings ?? defaultAnalysisSettings());
     setEditingExpenseId("");
     setEditingBudgetId("");
     setEditingIncomeId("");
     setEditingAdjustmentId("");
+    setEditingBalanceSnapshotId("");
+    setIsBalanceSnapshotAdjustmentCustomized(false);
     setScheduleModalIncomeId("");
     setScheduleOccurrenceDate("");
     setScheduleAdjustedDate("");
@@ -2862,7 +3098,15 @@ function createVersionPayload(snapshotDate, payload, user, sourceVersion = null)
 }
 
 function emptyWorkspace() {
-  return { expenses: {}, budgets: {}, incomes: {}, adjustments: {}, analysisSettings: defaultAnalysisSettings(), updatedAt: Date.now() };
+  return {
+    expenses: {},
+    budgets: {},
+    incomes: {},
+    adjustments: {},
+    balanceSnapshots: {},
+    analysisSettings: defaultAnalysisSettings(),
+    updatedAt: Date.now(),
+  };
 }
 
 function defaultExpenseForm() {
@@ -2909,6 +3153,17 @@ function defaultAdjustmentForm() {
   return {
     date: localDate(),
     amount: "",
+  };
+}
+
+function defaultBalanceSnapshotForm() {
+  return {
+    date: localDate(),
+    cashUsd: "",
+    chileUsd: "",
+    schwabUsd: "",
+    bofaUsd: "",
+    adjustmentAmount: "0",
   };
 }
 
@@ -3011,7 +3266,8 @@ function hasWorkspaceContent(workspace) {
     Object.keys(workspace?.expenses ?? {}).length ||
       Object.keys(workspace?.budgets ?? {}).length ||
       Object.keys(workspace?.incomes ?? {}).length ||
-      Object.keys(workspace?.adjustments ?? {}).length,
+      Object.keys(workspace?.adjustments ?? {}).length ||
+      Object.keys(workspace?.balanceSnapshots ?? {}).length,
   );
 }
 
@@ -3028,6 +3284,7 @@ function normalizeWorkspace(source) {
     budgets: candidate.budgets ?? {},
     incomes: candidate.incomes ?? {},
     adjustments: candidate.adjustments ?? {},
+    balanceSnapshots: candidate.balanceSnapshots ?? {},
     analysisSettings: candidate.analysisSettings ?? defaultAnalysisSettings(),
     updatedAt: candidate.updatedAt ?? candidate.savedAt ?? candidate.createdAt ?? Date.now(),
   });
@@ -3097,7 +3354,26 @@ function sanitizeWorkspace(workspace) {
         {
           date: String(value?.date ?? localDate()),
           amount: Number(value?.amount) || 0,
+          label: String(value?.label ?? "").trim(),
+          linkedBalanceSnapshotId: String(value?.linkedBalanceSnapshotId ?? "").trim(),
+          sourceType: String(value?.sourceType ?? "").trim() === "balance-snapshot" ? "balance-snapshot" : "manual",
           createdAt: Number(value?.createdAt) || Date.now(),
+          updatedAt: Number(value?.updatedAt) || Number(value?.createdAt) || Date.now(),
+        },
+      ]),
+    ),
+    balanceSnapshots: Object.fromEntries(
+      Object.entries(workspace?.balanceSnapshots ?? {}).map(([id, value]) => [
+        id,
+        {
+          date: String(value?.date ?? localDate()),
+          cashUsd: Number(value?.cashUsd) || 0,
+          chileUsd: Number(value?.chileUsd) || 0,
+          schwabUsd: Number(value?.schwabUsd) || 0,
+          bofaUsd: Number(value?.bofaUsd) || 0,
+          linkedAdjustmentId: String(value?.linkedAdjustmentId ?? "").trim(),
+          createdAt: Number(value?.createdAt) || Date.now(),
+          updatedAt: Number(value?.updatedAt) || Number(value?.createdAt) || Date.now(),
         },
       ]),
     ),
@@ -3199,6 +3475,10 @@ function validateAdjustment(adjustment) {
   return validateAdjustmentRecord(adjustment);
 }
 
+function validateBalanceSnapshot(snapshot) {
+  return validateBalanceSnapshotRecord(snapshot);
+}
+
 function validateAnalysisSettings(settings) {
   return validateAnalysisSettingsRecord(settings);
 }
@@ -3222,6 +3502,10 @@ function validateWorkspace(workspace) {
   }
   for (const adjustment of Object.values(workspace.adjustments ?? {})) {
     const error = validateAdjustment(adjustment);
+    if (error) return error;
+  }
+  for (const balanceSnapshot of Object.values(workspace.balanceSnapshots ?? {})) {
+    const error = validateBalanceSnapshot(balanceSnapshot);
     if (error) return error;
   }
   const budgetCollectionError = validateBudgetCollection(workspace.budgets ?? {});
@@ -3462,7 +3746,7 @@ function getAdjustmentSortValue(adjustment, key) {
     case "date":
       return dateToTimestamp(adjustment.date);
     case "type":
-      return normalizeSortText("Cuadre");
+      return normalizeSortText(adjustment.sourceType === "balance-snapshot" ? "Saldo observado" : "Cuadre manual");
     case "amount":
       return Number(adjustment.amount) || 0;
     case "impact":
@@ -4281,8 +4565,11 @@ function isValidMonthKey(value) {
   return /^\d{4}-\d{2}$/.test(String(value ?? ""));
 }
 
-function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, currentDateKey, analysisSettings }) {
+function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, balanceSnapshots = [], currentDateKey, analysisSettings }) {
   const chartRange = toChartAnalysisSettings(analysisSettings);
+  const observedBalanceByDate = Object.fromEntries(
+    (balanceSnapshots ?? []).map((snapshot) => [snapshot.date, calculateBalanceSnapshotObservedTotal(snapshot)]),
+  );
   const budgetExpenses = budgets.map((budget) => ({
     id: budget.id,
     name: budget.name,
@@ -4305,7 +4592,7 @@ function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, curre
   const budgetModel = buildCashflowModel({
     expenses: budgetExpenses,
     incomes,
-    adjustments,
+    adjustments: [],
     currentDateKey,
     analysisSettings: chartRange,
   });
@@ -4317,12 +4604,98 @@ function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, curre
     shortLabel: date.shortLabel,
     estimatedBalance: estimatedRow?.values?.[date.key] ?? 0,
     budgetBalance: budgetRow?.values?.[date.key] ?? 0,
+    hasObservedSnapshot: date.key in observedBalanceByDate,
+    observedBalance: observedBalanceByDate[date.key] ?? null,
   }));
 
   return {
     dailyPoints,
     yDomain: resolveBalanceChartDomain(dailyPoints),
     rangeLabel: `${formatMonthLabel(chartRange.chartStartMonth)} - ${formatMonthLabel(chartRange.chartEndMonth)}`,
+  };
+}
+
+function buildBalanceSnapshotOverviewModel({ expenses, incomes, adjustments, balanceSnapshots, analysisSettings, currentForm, editingSnapshotId }) {
+  const settings = sanitizeAnalysisSettings(analysisSettings);
+  const snapshotDates = (balanceSnapshots ?? [])
+    .map((snapshot) => String(snapshot?.date ?? "").trim())
+    .filter((date) => isValidDateKey(date));
+  const currentFormDate = String(currentForm?.date ?? "").trim();
+  const relevantDates = [...snapshotDates, currentFormDate].filter((date) => isValidDateKey(date));
+  const rangeStart = relevantDates.length ? minDateKey(settings.startDate, ...relevantDates) : settings.startDate;
+  const rangeEnd = relevantDates.length ? maxDateKey(settings.endDate, ...relevantDates) : settings.endDate;
+  const timelineModel = buildCashflowModel({
+    expenses,
+    incomes,
+    adjustments,
+    currentDateKey: currentFormDate || localDate(),
+    analysisSettings: {
+      ...settings,
+      startDate: rangeStart,
+      endDate: rangeEnd,
+    },
+  });
+  const closingBalanceByDate = timelineModel.rows.find((row) => row.key === "closingBalance")?.values ?? {};
+  const adjustmentsById = Object.fromEntries((adjustments ?? []).map((adjustment) => [adjustment.id, adjustment]));
+  const editingSnapshot = (balanceSnapshots ?? []).find((snapshot) => snapshot.id === editingSnapshotId) ?? null;
+  const editingLinkedAdjustment = adjustmentsById[editingSnapshot?.linkedAdjustmentId] ?? null;
+  const currentObservedTotal = calculateBalanceSnapshotObservedTotal(currentForm);
+  const currentEstimatedBalance = currentFormDate ? Number(closingBalanceByDate[currentFormDate]) || 0 : 0;
+  const currentLinkedAdjustmentImpact =
+    editingLinkedAdjustment && editingLinkedAdjustment.date <= currentFormDate ? Number(editingLinkedAdjustment.amount) || 0 : 0;
+  const currentEstimatedBeforeOwnAdjustment = roundCurrencyValue(currentEstimatedBalance - currentLinkedAdjustmentImpact);
+  const currentSuggestedAdjustment = roundCurrencyValue(currentObservedTotal - currentEstimatedBeforeOwnAdjustment);
+  const snapshots = [...(balanceSnapshots ?? [])]
+    .map((snapshot) => {
+      const linkedAdjustment = adjustmentsById[snapshot.linkedAdjustmentId] ?? null;
+      const observedTotal = calculateBalanceSnapshotObservedTotal(snapshot);
+      const estimatedBalance = Number(closingBalanceByDate[snapshot.date]) || 0;
+      const linkedAdjustmentImpact =
+        linkedAdjustment && linkedAdjustment.date <= snapshot.date ? Number(linkedAdjustment.amount) || 0 : 0;
+      const estimatedBeforeOwnAdjustment = roundCurrencyValue(estimatedBalance - linkedAdjustmentImpact);
+      const suggestedAdjustment = roundCurrencyValue(observedTotal - estimatedBeforeOwnAdjustment);
+      const appliedAdjustmentAmount = linkedAdjustment ? roundCurrencyValue(linkedAdjustment.amount) : 0;
+      const differenceAfterApplied = roundCurrencyValue(observedTotal - estimatedBalance);
+      const adjustmentDateMatches = linkedAdjustment ? linkedAdjustment.date === snapshot.date : false;
+      const hasAppliedAdjustment = Boolean(linkedAdjustment);
+      const matchesSuggestion = hasAppliedAdjustment
+        ? adjustmentDateMatches && areCurrencyAmountsEqual(appliedAdjustmentAmount, suggestedAdjustment)
+        : areCurrencyAmountsEqual(suggestedAdjustment, 0);
+
+      return {
+        ...snapshot,
+        adjustmentDateMatches,
+        appliedAdjustmentAmount,
+        differenceAfterApplied,
+        estimatedBalance,
+        estimatedBeforeOwnAdjustment,
+        hasAppliedAdjustment,
+        linkedAdjustment,
+        matchesSuggestion,
+        observedTotal,
+        status: resolveBalanceSnapshotStatus({
+          adjustmentDateMatches,
+          differenceAfterApplied,
+          hasAppliedAdjustment,
+        }),
+        suggestedAdjustment,
+      };
+    })
+    .sort((left, right) => {
+      const dateResult = compareSortValues(dateToTimestamp(left.date), dateToTimestamp(right.date), "desc");
+      if (dateResult !== 0) return dateResult;
+      return (Number(right.updatedAt) || Number(right.createdAt) || 0) - (Number(left.updatedAt) || Number(left.createdAt) || 0);
+    });
+
+  return {
+    form: {
+      estimatedBalance: currentEstimatedBalance,
+      estimatedBeforeOwnAdjustment: currentEstimatedBeforeOwnAdjustment,
+      observedTotal: currentObservedTotal,
+      suggestedAdjustment: currentSuggestedAdjustment,
+    },
+    rangeLabel: `${formatDateLabel(rangeStart)} - ${formatDateLabel(rangeEnd)}`,
+    snapshots,
   };
 }
 
@@ -4429,6 +4802,9 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
   for (const adjustment of adjustments) {
     const date = adjustment.date;
     const amount = Number(adjustment.amount) || 0;
+    const label =
+      adjustment.label ||
+      (adjustment.sourceType === "balance-snapshot" ? "Cuadre desde saldo observado" : "Cuadre manual");
     increaseDateValue(dailyImpactByDate, date, amount);
 
     if (date < displayStart || date > displayEnd) continue;
@@ -4440,7 +4816,7 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
       formatCashflowLine({
         amount,
         currency: "USD",
-        label: "Cuadre manual",
+        label,
         date,
       }),
     );
@@ -4865,6 +5241,94 @@ function minDateKey(...values) {
 function maxDateKey(...values) {
   const dates = values.filter(Boolean).sort();
   return dates[dates.length - 1] ?? localDate();
+}
+
+function isValidDateKey(value) {
+  return isValidDate(parseDateKey(value));
+}
+
+function roundCurrencyValue(value) {
+  return Math.round((Number(value) || 0) * 100) / 100;
+}
+
+function areCurrencyAmountsEqual(left, right) {
+  return Math.abs(roundCurrencyValue(left) - roundCurrencyValue(right)) < 0.005;
+}
+
+function parseEditableAmount(value) {
+  const normalizedValue = String(value ?? "").trim().replace(/,/g, "");
+
+  if (!normalizedValue) {
+    return 0;
+  }
+
+  const numericValue = Number(normalizedValue);
+  return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function formatEditableAmount(value) {
+  if (!Number.isFinite(Number(value))) {
+    return "0";
+  }
+
+  const roundedValue = roundCurrencyValue(value);
+  return Object.is(roundedValue, -0) ? "0" : String(roundedValue);
+}
+
+function calculateBalanceSnapshotObservedTotal(snapshot) {
+  return roundCurrencyValue(
+    ["cashUsd", "chileUsd", "schwabUsd", "bofaUsd"].reduce((sum, key) => sum + (Number(snapshot?.[key]) || 0), 0),
+  );
+}
+
+function resolveBalanceSnapshotStatus({ hasAppliedAdjustment, differenceAfterApplied, adjustmentDateMatches }) {
+  if (!hasAppliedAdjustment) {
+    return areCurrencyAmountsEqual(differenceAfterApplied, 0)
+      ? {
+          color: "gray",
+          description: "El saldo real ya coincide con el cierre estimado de la app.",
+          label: "Sin cuadre",
+        }
+      : {
+          color: "orange",
+          description: "Falta aplicar el cuadre para que el grafico represente este saldo real.",
+          label: "Pendiente",
+        };
+  }
+
+  if (adjustmentDateMatches && areCurrencyAmountsEqual(differenceAfterApplied, 0)) {
+    return {
+      color: "teal",
+      description: "El cuadre aplicado deja conciliado el cierre de ese dia.",
+      label: "Cuadrado",
+    };
+  }
+
+  return adjustmentDateMatches
+    ? {
+        color: "orange",
+        description: "El saldo observado cambio y el cuadre aplicado ya no coincide.",
+        label: "A revisar",
+      }
+    : {
+        color: "orange",
+        description: "El cuadre ligado existe, pero no esta aplicado en esa misma fecha.",
+        label: "A revisar",
+      };
+}
+
+function findBalanceSnapshotIdByDate(balanceSnapshots, date, excludedId = "") {
+  for (const [snapshotId, value] of Object.entries(balanceSnapshots ?? {})) {
+    if (snapshotId === excludedId) {
+      continue;
+    }
+
+    if (String(value?.date ?? "").trim() === String(date ?? "").trim()) {
+      return snapshotId;
+    }
+  }
+
+  return "";
 }
 
 function getExpenseCategoryGroup(category) {
