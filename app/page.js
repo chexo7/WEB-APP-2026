@@ -18,7 +18,6 @@ import {
   startOfMonth as getStartOfMonth,
   startOfWeek as getStartOfWeek,
 } from "date-fns";
-import { es } from "date-fns/locale";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
@@ -59,7 +58,6 @@ const expenseCurrencies = [
 ];
 const incomeFrequencies = ["Mensual", "Semanal", "Bi-semanal", "Unico"];
 const incomeCurrencies = expenseCurrencies;
-const spanishDateLocale = es;
 const fixedExpenseCategories = sortLabelsAlphabetically([
   "Ahorro - Inversion",
   "Arriendo",
@@ -1435,9 +1433,21 @@ export default function HomePage() {
             <section className="summary-panel">
               <div className="summary-grid">
                 <article className="summary-card summary-card-balance">
-                  <span>Saldo al dia de hoy</span>
-                  <strong>{money(summaryIndicators.todayBalance, "USD")}</strong>
-                  <p className="summary-card-detail">Cierre estimado al {formatDateLabel(todayKey)}.</p>
+                  <span>Saldos de hoy y manana</span>
+                  <div className="summary-balance-split">
+                    <div className="summary-balance-column">
+                      <span className="summary-balance-label">Hoy</span>
+                      <strong>{money(summaryIndicators.todayBalance, "USD")}</strong>
+                    </div>
+                    <div className="summary-balance-column">
+                      <span className="summary-balance-label">Manana</span>
+                      <strong>{money(summaryIndicators.tomorrowBalance, "USD")}</strong>
+                    </div>
+                  </div>
+                  <p className="summary-card-detail">
+                    Cierre estimado al {formatDateLabel(summaryIndicators.todayBalanceDate)} y proyeccion al{" "}
+                    {formatDateLabel(summaryIndicators.tomorrowBalanceDate)}.
+                  </p>
                 </article>
                 <article className="summary-card summary-card-positive">
                   <span>Gastos fijos de {summaryIndicators.currentMonthLabel}</span>
@@ -3535,6 +3545,7 @@ function buildSummaryIndicatorsModel({ expenses, incomes, adjustments, currentDa
   const todayDate = parseDateKey(currentDateKey);
   const safeCurrentDateKey = isValidDate(todayDate) ? currentDateKey : localDate();
   const safeCurrentDate = isValidDate(todayDate) ? todayDate : parseDateKey(safeCurrentDateKey);
+  const tomorrowBalanceDate = localDate(addCalendarDays(safeCurrentDate, 1));
   const monthKey = String(safeCurrentDateKey).slice(0, 7);
   const monthEndKey = localDate(getEndOfMonth(safeCurrentDate));
   const upcomingExpenseWindowStart = localDate(addCalendarDays(safeCurrentDate, 1));
@@ -3638,6 +3649,7 @@ function buildSummaryIndicatorsModel({ expenses, incomes, adjustments, currentDa
   const todayBalance = Object.entries(dailyBalanceChanges)
     .filter(([date]) => date <= safeCurrentDateKey)
     .reduce((sum, [, amount]) => sum + (Number(amount) || 0), 0);
+  const tomorrowBalance = todayBalance + (Number(dailyBalanceChanges[tomorrowBalanceDate]) || 0);
 
   const incomeTimeline = Object.values(incomeGroupsByDate)
     .map((group) => ({
@@ -3717,6 +3729,9 @@ function buildSummaryIndicatorsModel({ expenses, incomes, adjustments, currentDa
     projectionEndKey,
     thresholdAlerts,
     todayBalance,
+    todayBalanceDate: safeCurrentDateKey,
+    tomorrowBalance,
+    tomorrowBalanceDate,
     upcomingExpenseWindowEnd,
     upcomingExpenseWindowStart,
     upcomingExpenses,
@@ -4207,9 +4222,9 @@ function getMonthRangePartsFromMonths(startMonthKey, endMonthKey) {
     .slice(0, 240)
     .map((monthDate) => ({
       key: formatDateValue(monthDate, "yyyy-MM"),
-      shortLabel: capitalizeLabel(formatDateValue(monthDate, "MMM", { locale: spanishDateLocale }).replace(".", "")),
+      shortLabel: formatDateValue(monthDate, "MM"),
       yearLabel: formatDateValue(monthDate, "yyyy"),
-      fullLabel: capitalizeLabel(formatDateValue(monthDate, "MMMM yyyy", { locale: spanishDateLocale })),
+      fullLabel: formatDateValue(monthDate, "MM/yyyy"),
     }));
 }
 
@@ -4641,7 +4656,7 @@ function getCashflowPeriodDescriptor(dateKey, resolution) {
     return {
       key: monthKey,
       fullLabel: formatMonthLabel(monthKey),
-      shortLabel: capitalizeLabel(formatDateValue(date, "MMM", { locale: spanishDateLocale }).replace(".", "")),
+      shortLabel: formatDateValue(date, "MM"),
       yearLabel: formatDateValue(date, "yyyy"),
     };
   }
@@ -4653,7 +4668,7 @@ function getCashflowPeriodDescriptor(dateKey, resolution) {
     return {
       key: `week-${localDate(startDate)}`,
       fullLabel: `Semana ${formatDateLabel(localDate(startDate))} - ${formatDateLabel(localDate(endDate))}`,
-      shortLabel: `${formatDateValue(startDate, "dd/MM")} - ${formatDateValue(endDate, "dd/MM")}`,
+      shortLabel: `${formatDateValue(startDate, "MM/dd")} - ${formatDateValue(endDate, "MM/dd")}`,
       yearLabel: formatDateValue(startDate, "yyyy"),
     };
   }
@@ -4661,7 +4676,7 @@ function getCashflowPeriodDescriptor(dateKey, resolution) {
   return {
     key: dateKey,
     fullLabel: formatDateLabel(dateKey),
-    shortLabel: formatDateValue(date, "dd/MM"),
+    shortLabel: formatDateValue(date, "MM/dd"),
     yearLabel: formatDateValue(date, "yyyy"),
   };
 }
@@ -4796,7 +4811,7 @@ function getDateRangeParts(startDateKey, endDateKey) {
     .map((date) => ({
       fullLabel: formatDateLabel(localDate(date)),
       key: localDate(date),
-      shortLabel: formatDateValue(date, "dd/MM"),
+      shortLabel: formatDateValue(date, "MM/dd"),
       yearLabel: formatDateValue(date, "yyyy"),
     }));
 }
@@ -4917,12 +4932,6 @@ function normalizeSearchText(value) {
     : "";
 }
 
-function capitalizeLabel(value) {
-  const text = String(value ?? "").trim();
-  if (!text) return "";
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 function dateToTimestamp(value) {
   if (!value) return null;
   const date = parseDateKey(value);
@@ -4967,15 +4976,14 @@ function formatMonthLabel(monthKey) {
   if (!isValidMonthKey(monthKey)) return monthKey;
   const date = parseDateKey(firstDayOfMonth(monthKey));
   if (!isValidDate(date)) return monthKey;
-  return capitalizeLabel(formatDateValue(date, "MMMM yyyy", { locale: spanishDateLocale }));
+  return formatDateValue(date, "MM/yyyy");
 }
 
 function formatMonthTick(monthKey) {
   if (!isValidMonthKey(monthKey)) return monthKey;
   const date = parseDateKey(firstDayOfMonth(monthKey));
   if (!isValidDate(date)) return monthKey;
-  const monthLabel = capitalizeLabel(formatDateValue(date, "MMM", { locale: spanishDateLocale }).replace(".", ""));
-  return `${monthLabel} ${formatDateValue(date, "yy")}`;
+  return formatDateValue(date, "MM/yy");
 }
 
 function formatBalanceTrendTick(dateKey, resolution = "daily") {
@@ -4984,18 +4992,16 @@ function formatBalanceTrendTick(dateKey, resolution = "daily") {
   if (!isValidDate(date)) return dateKey;
 
   if (resolution === "monthly") {
-    return formatDateValue(date, "d MMMM yyyy", { locale: spanishDateLocale });
+    return formatDateValue(date, "MM/yyyy");
   }
 
   if (resolution === "weekly") {
-    return capitalizeLabel(formatDateValue(date, "eee d MMM", { locale: spanishDateLocale }).replaceAll(".", ""));
+    return formatDateValue(date, "MM/dd");
   }
 
   const isMonthStart = date.getDate() === 1;
 
-  return isMonthStart
-    ? capitalizeLabel(formatDateValue(date, "dd MMM", { locale: spanishDateLocale }).replace(".", ""))
-    : formatDateValue(date, "dd");
+  return isMonthStart ? formatDateValue(date, "MM/dd") : formatDateValue(date, "dd");
 }
 
 function resolveBalanceChartDomain(points) {
@@ -5019,8 +5025,8 @@ function resolveBalanceChartDomain(points) {
 
 function labelVersion(version) {
   const timestamp = new Date(Number(version.savedAt));
-  if (!isValidDate(timestamp)) return String(version.snapshotDate ?? "Sin fecha");
-  return `${version.snapshotDate} | ${formatDateValue(timestamp, "Pp", { locale: spanishDateLocale })}`;
+  if (!isValidDate(timestamp)) return formatDateLabel(version.snapshotDate);
+  return `${formatDateLabel(version.snapshotDate)} | ${formatDateValue(timestamp, "hh:mm a")}`;
 }
 
 function toUsdAmount(expense) {
@@ -5031,7 +5037,7 @@ function formatDateLabel(value) {
   if (!value) return "Sin fecha";
   const date = parseDateKey(value);
   if (!isValidDate(date)) return value;
-  return formatDateValue(date, "P", { locale: spanishDateLocale });
+  return formatDateValue(date, "MM/dd/yyyy");
 }
 
 function buildBalanceTrendTicks(points, resolution) {
@@ -5101,6 +5107,6 @@ function formatTimestampLabel(value) {
   if (!value) return "Sin fecha";
   const date = new Date(Number(value));
   if (!isValidDate(date)) return "Sin fecha";
-  return formatDateValue(date, "P", { locale: spanishDateLocale });
+  return formatDateValue(date, "MM/dd/yyyy");
 }
 

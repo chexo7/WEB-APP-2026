@@ -549,19 +549,15 @@ function formatUpdatedAt(value) {
   }
 
   if (/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) {
-    return new Intl.DateTimeFormat("es-CL", {
-      day: "2-digit",
-      month: "short",
-    })
-      .format(candidate)
-      .replace(",", "");
+    return formatUsDate(candidate);
   }
 
-  return new Intl.DateTimeFormat("es-CL", {
+  return new Intl.DateTimeFormat("en-US", {
     day: "2-digit",
-    month: "short",
     hour: "2-digit",
     minute: "2-digit",
+    month: "2-digit",
+    year: "numeric",
   })
     .format(candidate)
     .replace(",", "");
@@ -576,12 +572,15 @@ function formatShortDate(value) {
     return value;
   }
 
-  return new Intl.DateTimeFormat("es-CL", {
+  return formatUsDate(candidate);
+}
+
+function formatUsDate(value) {
+  return new Intl.DateTimeFormat("en-US", {
     day: "2-digit",
-    month: "short",
-  })
-    .format(candidate)
-    .replace(",", "");
+    month: "2-digit",
+    year: "numeric",
+  }).format(value);
 }
 
 function formatNumber(value, decimals = 2) {
