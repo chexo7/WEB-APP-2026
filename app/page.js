@@ -125,7 +125,9 @@ export default function HomePage() {
   const [dataError, setDataError] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [expenseSort, setExpenseSort] = useState({ key: "movementDate", direction: "desc" });
+  const [expenseSearchTerm, setExpenseSearchTerm] = useState("");
   const [incomeSort, setIncomeSort] = useState({ key: "startDate", direction: "desc" });
+  const [incomeSearchTerm, setIncomeSearchTerm] = useState("");
   const [adjustmentSort, setAdjustmentSort] = useState({ key: "date", direction: "desc" });
   const [cashflowTooltip, setCashflowTooltip] = useState(null);
   const [cashflowModelCache, setCashflowModelCache] = useState({ daily: null, weekly: null, monthly: null });
@@ -136,6 +138,8 @@ export default function HomePage() {
   const expenseNameWarning = useMemo(() => getFirebaseTextWarning(expenseForm.name), [expenseForm.name]);
   const budgetNameWarning = useMemo(() => getFirebaseTextWarning(budgetForm.name), [budgetForm.name]);
   const incomeNameWarning = useMemo(() => getFirebaseTextWarning(incomeForm.name), [incomeForm.name]);
+  const deferredExpenseSearchTerm = useDeferredValue(expenseSearchTerm);
+  const deferredIncomeSearchTerm = useDeferredValue(incomeSearchTerm);
   const displayedTab = useDeferredValue(activeTab);
   const isTabTransitionPending = displayedTab !== activeTab;
   const centerCashflowOnCurrentPeriod = (behavior = "auto") => {
@@ -334,6 +338,14 @@ export default function HomePage() {
     [budgetEntries],
   );
   const incomes = useMemo(() => sortCollection(incomeEntries, incomeSort, getIncomeSortValue), [incomeEntries, incomeSort]);
+  const filteredExpenses = useMemo(
+    () => filterExpensesBySearch(expenses, deferredExpenseSearchTerm),
+    [deferredExpenseSearchTerm, expenses],
+  );
+  const filteredIncomes = useMemo(
+    () => filterIncomesBySearch(incomes, deferredIncomeSearchTerm),
+    [deferredIncomeSearchTerm, incomes],
+  );
   const adjustments = useMemo(
     () => sortCollection(adjustmentEntries, adjustmentSort, getAdjustmentSortValue),
     [adjustmentEntries, adjustmentSort],
@@ -1663,15 +1675,48 @@ export default function HomePage() {
                 </div>
 
                 {expenses.length ? (
-                  <ExpensesTable
-                    expenseSort={expenseSort}
-                    expenses={expenses}
-                    formatDateLabel={formatDateLabel}
-                    formatMoneyLabel={money}
-                    onDeleteExpense={deleteExpense}
-                    onEditExpense={editExpense}
-                    onSortChange={setExpenseSort}
-                  />
+                  <>
+                    <div className="table-search-shell">
+                      <label className="table-search-field">
+                        <span>Buscar en gastos</span>
+                        <input
+                          name="expenseSearch"
+                          onChange={(event) => setExpenseSearchTerm(event.target.value)}
+                          placeholder="Ej: supermercado, uber, marzo, 25000"
+                          type="search"
+                          value={expenseSearchTerm}
+                        />
+                      </label>
+
+                      <div className="table-search-meta">
+                        <strong>
+                          {filteredExpenses.length === expenses.length
+                            ? `${expenses.length} registro${expenses.length === 1 ? "" : "s"}`
+                            : `${filteredExpenses.length} de ${expenses.length} registro${expenses.length === 1 ? "" : "s"}`}
+                        </strong>
+                        <span>Busca por nombre, categoria, fecha, monto o moneda.</span>
+                        {expenseSearchTerm ? (
+                          <button className="secondary-button" onClick={() => setExpenseSearchTerm("")} type="button">
+                            Limpiar busqueda
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {filteredExpenses.length ? (
+                      <ExpensesTable
+                        expenseSort={expenseSort}
+                        expenses={filteredExpenses}
+                        formatDateLabel={formatDateLabel}
+                        formatMoneyLabel={money}
+                        onDeleteExpense={deleteExpense}
+                        onEditExpense={editExpense}
+                        onSortChange={setExpenseSort}
+                      />
+                    ) : (
+                      <p className="muted-text">No hay gastos que coincidan con esa busqueda.</p>
+                    )}
+                  </>
                 ) : (
                   <p className="muted-text">Todavia no hay gastos en la lista.</p>
                 )}
@@ -2179,17 +2224,50 @@ export default function HomePage() {
                 </div>
 
                 {incomes.length ? (
-                  <IncomesTable
-                    formatDateLabel={formatDateLabel}
-                    formatMoneyLabel={money}
-                    formatTimestampLabel={formatTimestampLabel}
-                    incomeSort={incomeSort}
-                    incomes={incomes}
-                    onDeleteIncome={deleteIncome}
-                    onEditIncome={editIncome}
-                    onManageSchedule={openIncomeScheduleModal}
-                    onSortChange={setIncomeSort}
-                  />
+                  <>
+                    <div className="table-search-shell">
+                      <label className="table-search-field">
+                        <span>Buscar en ingresos</span>
+                        <input
+                          name="incomeSearch"
+                          onChange={(event) => setIncomeSearchTerm(event.target.value)}
+                          placeholder="Ej: sueldo, reembolso, usd, 2026-03"
+                          type="search"
+                          value={incomeSearchTerm}
+                        />
+                      </label>
+
+                      <div className="table-search-meta">
+                        <strong>
+                          {filteredIncomes.length === incomes.length
+                            ? `${incomes.length} registro${incomes.length === 1 ? "" : "s"}`
+                            : `${filteredIncomes.length} de ${incomes.length} registro${incomes.length === 1 ? "" : "s"}`}
+                        </strong>
+                        <span>Busca por nombre, tipo, fecha, monto, moneda o categoria de ajuste.</span>
+                        {incomeSearchTerm ? (
+                          <button className="secondary-button" onClick={() => setIncomeSearchTerm("")} type="button">
+                            Limpiar busqueda
+                          </button>
+                        ) : null}
+                      </div>
+                    </div>
+
+                    {filteredIncomes.length ? (
+                      <IncomesTable
+                        formatDateLabel={formatDateLabel}
+                        formatMoneyLabel={money}
+                        formatTimestampLabel={formatTimestampLabel}
+                        incomeSort={incomeSort}
+                        incomes={filteredIncomes}
+                        onDeleteIncome={deleteIncome}
+                        onEditIncome={editIncome}
+                        onManageSchedule={openIncomeScheduleModal}
+                        onSortChange={setIncomeSort}
+                      />
+                    ) : (
+                      <p className="muted-text">No hay ingresos que coincidan con esa busqueda.</p>
+                    )}
+                  </>
                 ) : (
                   <p className="muted-text">Todavia no hay ingresos en la lista.</p>
                 )}
@@ -3236,6 +3314,58 @@ function buildExpenseImportSuccessMessage(createdCount, updatedCount) {
   }
 
   return `${parts.join(" y ")} aplicad${parts.length === 1 && createdCount === 1 && !updatedCount ? "o" : "os"} desde el JSON a la proyeccion activa.`;
+}
+
+function filterExpensesBySearch(expenses, query) {
+  return filterCollectionBySearch(expenses, query, buildExpenseSearchIndex);
+}
+
+function filterIncomesBySearch(incomes, query) {
+  return filterCollectionBySearch(incomes, query, buildIncomeSearchIndex);
+}
+
+function filterCollectionBySearch(items, query, buildSearchIndex) {
+  const searchTerms = buildSearchTerms(query);
+  if (!searchTerms.length) return items;
+
+  return items.filter((item) => {
+    const searchIndex = buildSearchIndex(item);
+    return searchTerms.every((term) => searchIndex.includes(term));
+  });
+}
+
+function buildSearchTerms(query) {
+  const normalizedQuery = normalizeSearchText(query);
+  return normalizedQuery ? normalizedQuery.split(/\s+/).filter(Boolean) : [];
+}
+
+function buildExpenseSearchIndex(expense) {
+  return normalizeSearchText([
+    expense.name,
+    expense.merchantName,
+    expense.detail,
+    expense.category,
+    expense.frequency,
+    expense.currency,
+    expense.movementDate ?? expense.date,
+    expense.endDate,
+    expense.isRecurringIndefinite ? "Recurrente sin fin" : expense.endDate ? "Con termino" : "Unico",
+    expense.amount,
+  ].join(" "));
+}
+
+function buildIncomeSearchIndex(income) {
+  return normalizeSearchText([
+    income.name,
+    income.isReimbursement ? "Reembolso" : "Ingreso real",
+    income.reimbursementCategory,
+    income.frequency,
+    income.currency,
+    income.startDate,
+    income.endDate,
+    income.isRecurringIndefinite ? "Recurrente sin fin" : income.endDate ? "Con termino" : "Unico",
+    income.amount,
+  ].join(" "));
 }
 
 function sortCollection(items, sortState, valueGetter) {
@@ -4750,8 +4880,17 @@ function sanitizeAnalysisSettings(settings) {
 }
 
 function normalizeSortText(value) {
+  return normalizeSearchText(value) || null;
+}
+
+function normalizeSearchText(value) {
   const text = String(value ?? "").trim();
-  return text ? text.toLocaleLowerCase("es") : null;
+  return text
+    ? text
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .toLocaleLowerCase("es")
+    : "";
 }
 
 function capitalizeLabel(value) {
