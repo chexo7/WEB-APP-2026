@@ -20,7 +20,7 @@ import {
 } from "date-fns";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
-import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ExpenseImportModal from "@/components/expense-import-modal";
 import ExpensesTable from "@/components/expenses-table";
 import IncomesTable from "@/components/incomes-table";
@@ -386,17 +386,6 @@ export default function HomePage() {
       }),
     [adjustments, analysisSettings, expenses, incomes, todayKey],
   );
-  const budgetComparisonModel = useMemo(
-    () =>
-      buildBudgetComparisonModel({
-        budgets,
-        expenses,
-        incomes,
-        currentDateKey: todayKey,
-        analysisSettings,
-      }),
-    [analysisSettings, budgets, expenses, incomes, todayKey],
-  );
   const budgetMonthlyOverview = useMemo(
     () =>
       buildBudgetMonthlyOverviewModel({
@@ -412,7 +401,6 @@ export default function HomePage() {
   const balanceTrendModel = useMemo(
     () =>
       buildBalanceTrendModel({
-        budgets,
         expenses,
         incomes,
         adjustments,
@@ -420,7 +408,7 @@ export default function HomePage() {
         currentDateKey: todayKey,
         analysisSettings,
       }),
-    [adjustments, analysisSettings, balanceSnapshots, budgets, expenses, incomes, todayKey],
+    [adjustments, analysisSettings, balanceSnapshots, expenses, incomes, todayKey],
   );
   const balanceSnapshotOverview = useMemo(
     () =>
@@ -760,7 +748,7 @@ export default function HomePage() {
   const saveBudgetToDraft = (event) => {
     event.preventDefault();
     const budgetId = editingBudgetId || localId("budget");
-    const nextBudget = {
+    const nextBudget = normalizeBudgetDates({
       name: sanitizeFirebaseCompatibleText(budgetForm.name),
       amount: Number(budgetForm.amount),
       currency: budgetForm.currency,
@@ -771,7 +759,7 @@ export default function HomePage() {
       isRecurringIndefinite: Boolean(budgetForm.isRecurringIndefinite),
       linkedCategories: sortLabelsAlphabetically([...new Set((budgetForm.linkedCategories ?? []).map(normalizeExpenseCategory))]),
       createdAt: draft.budgets?.[budgetId]?.createdAt ?? Date.now(),
-    };
+    });
     const error = validateBudget(nextBudget);
 
     if (error) {
@@ -1296,7 +1284,7 @@ export default function HomePage() {
     });
     setEditingBalanceSnapshotId(snapshotId);
     setIsBalanceSnapshotAdjustmentCustomized(Boolean(snapshotSummary?.hasAppliedAdjustment && !snapshotSummary?.matchesSuggestion));
-    setActiveTab("budgets");
+    setActiveTab("reconciliation");
   };
 
   const deleteExpense = (expenseId) => {
@@ -1990,7 +1978,7 @@ export default function HomePage() {
               <div className="budget-tab-header">
                 <h2>Presupuesto</h2>
                 <p className="section-copy">
-                  Define bloques por categoria con fecha y frecuencia para comparar cada gasto real contra su presupuesto exacto.
+                  Define bloques por categoria para distribuir el mes y comparar cada categoria contra su gasto real.
                   Puedes crear varios bloques para la misma categoria y el total se sumara automaticamente.
                 </p>
               </div>
@@ -2000,7 +1988,7 @@ export default function HomePage() {
                   <p className="form-kicker">Planeacion</p>
                   <h3>{editingBudgetId ? "Modificar Presupuesto" : "Crear Bloque de Presupuesto"}</h3>
                   <p className="budget-form-copy">
-                    Mantener fecha y frecuencia ayuda a que la tabla y los graficos conserven la resolucion exacta de cada bloque.
+                    La planificacion se simplifica por mes. Si una fecha trae dia, la app conserva solo su mes al guardar y comparar.
                   </p>
                 </div>
 
@@ -2039,11 +2027,11 @@ export default function HomePage() {
                     </select>
                   </label>
                   <label className="budget-field">
-                    Fecha Inicio:
+                    Fecha Inicio (se toma el mes):
                     <input name="startDate" onChange={(e) => setBudgetForm((c) => ({ ...c, startDate: e.target.value }))} type="date" value={budgetForm.startDate} />
                   </label>
                   <label className="budget-field">
-                    Fecha Fin (si aplica):
+                    Fecha Fin (si aplica, se toma el mes):
                     <input
                       disabled={budgetForm.isRecurringIndefinite}
                       name="endDate"
@@ -2134,212 +2122,6 @@ export default function HomePage() {
                 {successMessage ? <p className="success-text">{successMessage}</p> : null}
                 {dataError ? <p className="error-text">{dataError}</p> : null}
               </form>
-
-              <section className="panel-card panel-frame entry-form budget-balance-panel">
-                <div className="budget-form-title">
-                  <p className="form-kicker">Conciliacion</p>
-                  <h3>{editingBalanceSnapshotId ? "Modificar Saldo Observado" : "Registrar Saldo Observado"}</h3>
-                  <p className="budget-form-copy">
-                    Ingresa tus saldos reales ya convertidos a USD. La app compara ese total contra el cierre estimado al final de la fecha elegida
-                    y te propone el cuadre necesario para que la curva real del grafico quede alineada.
-                  </p>
-                </div>
-
-                <div className="budget-reconciliation-grid">
-                  <label className="budget-field">
-                    Fecha:
-                    <input
-                      name="balanceSnapshotDate"
-                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, date: event.target.value }))}
-                      type="date"
-                      value={balanceSnapshotForm.date}
-                    />
-                  </label>
-                  <label className="budget-field">
-                    Efectivo (USD):
-                    <input
-                      inputMode="decimal"
-                      name="cashUsd"
-                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, cashUsd: event.target.value }))}
-                      value={balanceSnapshotForm.cashUsd}
-                    />
-                  </label>
-                  <label className="budget-field">
-                    Chile (USD):
-                    <input
-                      inputMode="decimal"
-                      name="chileUsd"
-                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, chileUsd: event.target.value }))}
-                      value={balanceSnapshotForm.chileUsd}
-                    />
-                  </label>
-                  <label className="budget-field">
-                    Schwab (USD):
-                    <input
-                      inputMode="decimal"
-                      name="schwabUsd"
-                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, schwabUsd: event.target.value }))}
-                      value={balanceSnapshotForm.schwabUsd}
-                    />
-                  </label>
-                  <label className="budget-field">
-                    BofA (USD):
-                    <input
-                      inputMode="decimal"
-                      name="bofaUsd"
-                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, bofaUsd: event.target.value }))}
-                      value={balanceSnapshotForm.bofaUsd}
-                    />
-                  </label>
-                </div>
-
-                <p className="budget-reconciliation-helper">
-                  La suma de estos cuatro montos es tu saldo real observado. El saldo estimado se calcula con el flujo acumulado hasta el cierre de la fecha,
-                  sin contar el cuadre ligado a este mismo registro mientras lo estas editando.
-                </p>
-
-                <div className="budget-reconciliation-summary">
-                  <article className="summary-card summary-card-balance">
-                    <span>Saldo real observado</span>
-                    <strong>{money(balanceSnapshotOverview.form.observedTotal, "USD")}</strong>
-                    <p className="summary-card-detail">Suma de efectivo, Chile, Schwab y BofA para la fecha seleccionada.</p>
-                  </article>
-
-                  <article className="summary-card summary-card-soft">
-                    <span>Saldo estimado app</span>
-                    <strong>{money(balanceSnapshotOverview.form.estimatedBeforeOwnAdjustment, "USD")}</strong>
-                    <p className="summary-card-detail">Cierre que la app proyecta para ese dia antes de aplicar este cuadre.</p>
-                  </article>
-
-                  <article
-                    className={
-                      areCurrencyAmountsEqual(balanceSnapshotOverview.form.suggestedAdjustment, 0)
-                        ? "summary-card summary-card-positive"
-                        : "summary-card summary-card-warning"
-                    }
-                  >
-                    <span>Cuadre sugerido</span>
-                    <strong>{money(balanceSnapshotOverview.form.suggestedAdjustment, "USD")}</strong>
-                    <p className="summary-card-detail">Calculado como saldo real observado menos saldo estimado app.</p>
-                  </article>
-
-                  <article className="summary-card summary-card-neutral">
-                    <span>Rango base usado</span>
-                    <strong>{balanceSnapshotOverview.rangeLabel}</strong>
-                    <p className="summary-card-detail">Se extiende automaticamente para cubrir las fechas conciliadas que tengas registradas.</p>
-                  </article>
-                </div>
-
-                <div className="budget-reconciliation-actions">
-                  <label className="budget-field budget-field-full">
-                    Cuadre a aplicar:
-                    <input
-                      inputMode="decimal"
-                      name="balanceSnapshotAdjustment"
-                      onChange={(event) => {
-                        setBalanceSnapshotForm((current) => ({ ...current, adjustmentAmount: event.target.value }));
-                        setIsBalanceSnapshotAdjustmentCustomized(true);
-                      }}
-                      value={balanceSnapshotForm.adjustmentAmount}
-                    />
-                  </label>
-
-                  <button
-                    className="secondary-button"
-                    onClick={() => {
-                      setIsBalanceSnapshotAdjustmentCustomized(false);
-                      setBalanceSnapshotForm((current) => ({
-                        ...current,
-                        adjustmentAmount: formatEditableAmount(balanceSnapshotOverview.form.suggestedAdjustment),
-                      }));
-                    }}
-                    type="button"
-                  >
-                    Usar sugerencia
-                  </button>
-                </div>
-
-                <div className="button-row">
-                  <button className="primary-button" onClick={() => saveBalanceSnapshotToDraft(true)} type="button">
-                    {editingBalanceSnapshotId ? "Actualizar saldo y cuadre" : "Guardar saldo y aplicar cuadre"}
-                  </button>
-                  <button className="secondary-button" onClick={() => saveBalanceSnapshotToDraft(false)} type="button">
-                    {editingBalanceSnapshotId ? "Guardar sin cuadre" : "Guardar saldo sin cuadre"}
-                  </button>
-                  <button className="secondary-button" onClick={resetBalanceSnapshotEditor} type="button">
-                    Limpiar
-                  </button>
-                </div>
-
-                {successMessage ? <p className="success-text">{successMessage}</p> : null}
-                {dataError ? <p className="error-text">{dataError}</p> : null}
-              </section>
-
-              <section className="panel-card panel-frame budget-snapshot-list-panel">
-                <div className="panel-heading">
-                  <h2>Saldos observados guardados</h2>
-                  <p>
-                    Cada registro conserva el saldo real por fecha y, si corresponde, el cuadre ligado que mueve automaticamente la curva real del grafico.
-                  </p>
-                </div>
-
-                {balanceSnapshotOverview.snapshots.length ? (
-                  <div className="balance-snapshot-list">
-                    {balanceSnapshotOverview.snapshots.map((snapshot) => (
-                      <article className="balance-snapshot-row" key={snapshot.id}>
-                        <div className="balance-snapshot-copy">
-                          <div className="balance-snapshot-head">
-                            <div>
-                              <strong>{formatDateLabel(snapshot.date)}</strong>
-                              <p>{snapshot.status.description}</p>
-                            </div>
-                            <MantineBadge color={snapshot.status.color} radius="sm" size="lg" variant="light">
-                              {snapshot.status.label}
-                            </MantineBadge>
-                          </div>
-
-                          <div className="balance-snapshot-metrics">
-                            <div>
-                              <span>Saldo real</span>
-                              <strong>{money(snapshot.observedTotal, "USD")}</strong>
-                            </div>
-                            <div>
-                              <span>Saldo estimado app</span>
-                              <strong>{money(snapshot.estimatedBeforeOwnAdjustment, "USD")}</strong>
-                            </div>
-                            <div>
-                              <span>Cuadre sugerido</span>
-                              <strong>{money(snapshot.suggestedAdjustment, "USD")}</strong>
-                            </div>
-                            <div>
-                              <span>Cuadre aplicado</span>
-                              <strong>{snapshot.hasAppliedAdjustment ? money(snapshot.appliedAdjustmentAmount, "USD") : "Sin aplicar"}</strong>
-                            </div>
-                          </div>
-
-                          <div className="budget-chip-row">
-                            <span className="budget-category-chip">Efectivo {money(snapshot.cashUsd, "USD")}</span>
-                            <span className="budget-category-chip">Chile {money(snapshot.chileUsd, "USD")}</span>
-                            <span className="budget-category-chip">Schwab {money(snapshot.schwabUsd, "USD")}</span>
-                            <span className="budget-category-chip">BofA {money(snapshot.bofaUsd, "USD")}</span>
-                          </div>
-                        </div>
-
-                        <div className="table-actions">
-                          <MantineButton onClick={() => editBalanceSnapshot(snapshot.id)} size="xs" variant="default">
-                            Modificar
-                          </MantineButton>
-                          <MantineButton color="red" onClick={() => deleteBalanceSnapshot(snapshot.id)} size="xs" variant="light">
-                            Quitar
-                          </MantineButton>
-                        </div>
-                      </article>
-                    ))}
-                  </div>
-                ) : (
-                  <p className="muted-text">Todavia no hay saldos observados. Cuando registres uno, quedara listo para reconciliar el grafico.</p>
-                )}
-              </section>
 
               <section className="panel-card panel-frame budget-list-panel">
                 <div className="panel-heading">
@@ -2526,7 +2308,7 @@ export default function HomePage() {
                       </div>
                     </div>
                   ) : budgets.length ? (
-                    <p className="muted-text">No hay bloques que arranquen en este mes. Cambia el selector para revisar otro periodo.</p>
+                    <p className="muted-text">No hay bloques vigentes en este mes. Cambia el selector para revisar otro periodo.</p>
                   ) : (
                     <p className="muted-text">Todavia no hay bloques de presupuesto. Crea el primero para empezar a distribuir ingresos por categoria.</p>
                   )}
@@ -2798,6 +2580,212 @@ export default function HomePage() {
                 {dataError ? <p className="error-text">{dataError}</p> : null}
               </form>
 
+              <section className="panel-card panel-frame entry-form budget-balance-panel">
+                <div className="budget-form-title">
+                  <p className="form-kicker">Saldos por banco</p>
+                  <h3>{editingBalanceSnapshotId ? "Modificar Saldo Observado" : "Registrar Saldo Observado"}</h3>
+                  <p className="budget-form-copy">
+                    Ingresa tus saldos reales ya convertidos a USD. La app compara ese total contra el cierre estimado al final de la fecha elegida
+                    y te propone el cuadre necesario para que la curva real del grafico quede alineada.
+                  </p>
+                </div>
+
+                <div className="budget-reconciliation-grid">
+                  <label className="budget-field">
+                    Fecha:
+                    <input
+                      name="balanceSnapshotDate"
+                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, date: event.target.value }))}
+                      type="date"
+                      value={balanceSnapshotForm.date}
+                    />
+                  </label>
+                  <label className="budget-field">
+                    Efectivo (USD):
+                    <input
+                      inputMode="decimal"
+                      name="cashUsd"
+                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, cashUsd: event.target.value }))}
+                      value={balanceSnapshotForm.cashUsd}
+                    />
+                  </label>
+                  <label className="budget-field">
+                    Chile (USD):
+                    <input
+                      inputMode="decimal"
+                      name="chileUsd"
+                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, chileUsd: event.target.value }))}
+                      value={balanceSnapshotForm.chileUsd}
+                    />
+                  </label>
+                  <label className="budget-field">
+                    Schwab (USD):
+                    <input
+                      inputMode="decimal"
+                      name="schwabUsd"
+                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, schwabUsd: event.target.value }))}
+                      value={balanceSnapshotForm.schwabUsd}
+                    />
+                  </label>
+                  <label className="budget-field">
+                    BofA (USD):
+                    <input
+                      inputMode="decimal"
+                      name="bofaUsd"
+                      onChange={(event) => setBalanceSnapshotForm((current) => ({ ...current, bofaUsd: event.target.value }))}
+                      value={balanceSnapshotForm.bofaUsd}
+                    />
+                  </label>
+                </div>
+
+                <p className="budget-reconciliation-helper">
+                  La suma de estos cuatro montos es tu saldo real observado. El saldo estimado se calcula con el flujo acumulado hasta el cierre de la fecha,
+                  sin contar el cuadre ligado a este mismo registro mientras lo estas editando.
+                </p>
+
+                <div className="budget-reconciliation-summary">
+                  <article className="summary-card summary-card-balance">
+                    <span>Saldo real observado</span>
+                    <strong>{money(balanceSnapshotOverview.form.observedTotal, "USD")}</strong>
+                    <p className="summary-card-detail">Suma de efectivo, Chile, Schwab y BofA para la fecha seleccionada.</p>
+                  </article>
+
+                  <article className="summary-card summary-card-soft">
+                    <span>Saldo estimado app</span>
+                    <strong>{money(balanceSnapshotOverview.form.estimatedBeforeOwnAdjustment, "USD")}</strong>
+                    <p className="summary-card-detail">Cierre que la app proyecta para ese dia antes de aplicar este cuadre.</p>
+                  </article>
+
+                  <article
+                    className={
+                      areCurrencyAmountsEqual(balanceSnapshotOverview.form.suggestedAdjustment, 0)
+                        ? "summary-card summary-card-positive"
+                        : "summary-card summary-card-warning"
+                    }
+                  >
+                    <span>Cuadre sugerido</span>
+                    <strong>{money(balanceSnapshotOverview.form.suggestedAdjustment, "USD")}</strong>
+                    <p className="summary-card-detail">Calculado como saldo real observado menos saldo estimado app.</p>
+                  </article>
+
+                  <article className="summary-card summary-card-neutral">
+                    <span>Rango base usado</span>
+                    <strong>{balanceSnapshotOverview.rangeLabel}</strong>
+                    <p className="summary-card-detail">Se extiende automaticamente para cubrir las fechas conciliadas que tengas registradas.</p>
+                  </article>
+                </div>
+
+                <div className="budget-reconciliation-actions">
+                  <label className="budget-field budget-field-full">
+                    Cuadre a aplicar:
+                    <input
+                      inputMode="decimal"
+                      name="balanceSnapshotAdjustment"
+                      onChange={(event) => {
+                        setBalanceSnapshotForm((current) => ({ ...current, adjustmentAmount: event.target.value }));
+                        setIsBalanceSnapshotAdjustmentCustomized(true);
+                      }}
+                      value={balanceSnapshotForm.adjustmentAmount}
+                    />
+                  </label>
+
+                  <button
+                    className="secondary-button"
+                    onClick={() => {
+                      setIsBalanceSnapshotAdjustmentCustomized(false);
+                      setBalanceSnapshotForm((current) => ({
+                        ...current,
+                        adjustmentAmount: formatEditableAmount(balanceSnapshotOverview.form.suggestedAdjustment),
+                      }));
+                    }}
+                    type="button"
+                  >
+                    Usar sugerencia
+                  </button>
+                </div>
+
+                <div className="button-row">
+                  <button className="primary-button" onClick={() => saveBalanceSnapshotToDraft(true)} type="button">
+                    {editingBalanceSnapshotId ? "Actualizar saldo y cuadre" : "Guardar saldo y aplicar cuadre"}
+                  </button>
+                  <button className="secondary-button" onClick={() => saveBalanceSnapshotToDraft(false)} type="button">
+                    {editingBalanceSnapshotId ? "Guardar sin cuadre" : "Guardar saldo sin cuadre"}
+                  </button>
+                  <button className="secondary-button" onClick={resetBalanceSnapshotEditor} type="button">
+                    Limpiar
+                  </button>
+                </div>
+
+                {successMessage ? <p className="success-text">{successMessage}</p> : null}
+                {dataError ? <p className="error-text">{dataError}</p> : null}
+              </section>
+
+              <section className="panel-card panel-frame budget-snapshot-list-panel">
+                <div className="panel-heading">
+                  <h2>Saldos observados guardados</h2>
+                  <p>
+                    Cada registro conserva el saldo real por fecha y, si corresponde, el cuadre ligado que mueve automaticamente la curva real del grafico.
+                  </p>
+                </div>
+
+                {balanceSnapshotOverview.snapshots.length ? (
+                  <div className="balance-snapshot-list">
+                    {balanceSnapshotOverview.snapshots.map((snapshot) => (
+                      <article className="balance-snapshot-row" key={snapshot.id}>
+                        <div className="balance-snapshot-copy">
+                          <div className="balance-snapshot-head">
+                            <div>
+                              <strong>{formatDateLabel(snapshot.date)}</strong>
+                              <p>{snapshot.status.description}</p>
+                            </div>
+                            <MantineBadge color={snapshot.status.color} radius="sm" size="lg" variant="light">
+                              {snapshot.status.label}
+                            </MantineBadge>
+                          </div>
+
+                          <div className="balance-snapshot-metrics">
+                            <div>
+                              <span>Saldo real</span>
+                              <strong>{money(snapshot.observedTotal, "USD")}</strong>
+                            </div>
+                            <div>
+                              <span>Saldo estimado app</span>
+                              <strong>{money(snapshot.estimatedBeforeOwnAdjustment, "USD")}</strong>
+                            </div>
+                            <div>
+                              <span>Cuadre sugerido</span>
+                              <strong>{money(snapshot.suggestedAdjustment, "USD")}</strong>
+                            </div>
+                            <div>
+                              <span>Cuadre aplicado</span>
+                              <strong>{snapshot.hasAppliedAdjustment ? money(snapshot.appliedAdjustmentAmount, "USD") : "Sin aplicar"}</strong>
+                            </div>
+                          </div>
+
+                          <div className="budget-chip-row">
+                            <span className="budget-category-chip">Efectivo {money(snapshot.cashUsd, "USD")}</span>
+                            <span className="budget-category-chip">Chile {money(snapshot.chileUsd, "USD")}</span>
+                            <span className="budget-category-chip">Schwab {money(snapshot.schwabUsd, "USD")}</span>
+                            <span className="budget-category-chip">BofA {money(snapshot.bofaUsd, "USD")}</span>
+                          </div>
+                        </div>
+
+                        <div className="table-actions">
+                          <MantineButton onClick={() => editBalanceSnapshot(snapshot.id)} size="xs" variant="default">
+                            Modificar
+                          </MantineButton>
+                          <MantineButton color="red" onClick={() => deleteBalanceSnapshot(snapshot.id)} size="xs" variant="light">
+                            Quitar
+                          </MantineButton>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="muted-text">Todavia no hay saldos observados. Cuando registres uno, quedara listo para reconciliar el grafico.</p>
+                )}
+              </section>
+
               <section className="panel-card panel-frame panel-table">
                 <div className="panel-heading">
                   <h2>Lista de cuadres</h2>
@@ -3060,29 +3048,15 @@ export default function HomePage() {
                   <>
                     <div className="chart-legend">
                       <span><i className="legend-swatch actual-balance" /> Saldo real conciliado</span>
-                      <span><i className="legend-swatch budget-balance" /> Saldo esperado segun presupuesto</span>
                     </div>
                     <p className="chart-reconciliation-note">
-                      Las dos curvas comparten la misma base conciliada. La diferencia entre ambas muestra como va el flujo real frente al presupuesto.
+                      Este grafico refleja solo el flujo real conciliado y marca los dias donde ya registraste un saldo observado.
                     </p>
                     <p className="chart-scroll-copy">{getBalanceTrendScrollCopy(balanceTrendResolution)}</p>
                     <BalanceTrendChart model={balanceTrendModel} resolution={balanceTrendResolution} todayKey={todayKey} />
                   </>
                 ) : (
                   <p className="placeholder-copy">No hay datos suficientes para construir la serie diaria del periodo seleccionado.</p>
-                )}
-              </section>
-
-              <section className="panel-card panel-frame chart-panel">
-                <div className="panel-heading">
-                  <h2>Gasto no presupuestado</h2>
-                  <p>{budgetComparisonModel.chartWindowLabel}</p>
-                </div>
-
-                {budgetComparisonModel.chartPoints.length ? (
-                  <UnbudgetedBarTrendChart points={budgetComparisonModel.chartPoints} />
-                ) : (
-                  <p className="placeholder-copy">Todavia no hay datos para mostrar esta serie.</p>
                 )}
               </section>
             </section>
@@ -3158,7 +3132,6 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               width={72}
             />
             <Line dataKey="estimatedBalance" dot={false} isAnimationActive={false} stroke="transparent" strokeWidth={0} />
-            <Line dataKey="budgetBalance" dot={false} isAnimationActive={false} stroke="transparent" strokeWidth={0} />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -3183,15 +3156,6 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
             ) : null}
             <Line
               activeDot={{ r: 4 }}
-              dataKey="budgetBalance"
-              dot={false}
-              name="Saldo esperado segun presupuesto"
-              stroke="#8a929d"
-              strokeWidth={3}
-              type="linear"
-            />
-            <Line
-              activeDot={{ r: 4 }}
               dataKey="estimatedBalance"
               dot={false}
               name="Saldo real conciliado"
@@ -3207,73 +3171,17 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
   );
 }
 
-function UnbudgetedBarTrendChart({ points }) {
-  if (!points.length) return null;
-
-  const width = Math.max(640, points.length * 94);
-
-  return (
-    <div className="chart-sync-shell">
-      <div className="chart-axis-pane chart-axis-pane-bars">
-        <ResponsiveContainer height="100%" width="100%">
-          <BarChart data={points} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
-            <YAxis tick={{ fill: "#5a6f88", fontSize: 11 }} tickFormatter={formatCompactCurrency} width={72} />
-            <Bar dataKey="unbudgeted" fill="transparent" isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      <div className="chart-plot-scroll">
-        <div className="chart-scroll-content chart-scroll-content-bars chart-scroll-content-linear" style={{ width: `${width}px`, height: "320px" }}>
-          <ResponsiveContainer height="100%" width="100%">
-            <BarChart data={points} margin={{ top: 16, right: 20, left: 0, bottom: 8 }}>
-            <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" vertical={false} />
-            <XAxis dataKey="key" tick={{ fill: "#5a6f88", fontSize: 11 }} tickFormatter={formatMonthTick} />
-            <YAxis hide />
-            <Tooltip content={<UnbudgetedChartTooltip />} />
-            <Bar dataKey="unbudgeted" fill="url(#unbudgetedGradient)" name="Gasto no presupuestado" radius={[10, 10, 0, 0]} />
-            <defs>
-              <linearGradient id="unbudgetedGradient" x1="0" x2="0" y1="0" y2="1">
-                <stop offset="0%" stopColor="#d28a3f" />
-                <stop offset="100%" stopColor="#b6651d" />
-              </linearGradient>
-            </defs>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function BalanceChartTooltip({ active, payload, label }) {
   if (!active || !payload?.length) return null;
 
   const estimated = payload.find((entry) => entry.dataKey === "estimatedBalance")?.value ?? 0;
-  const budget = payload.find((entry) => entry.dataKey === "budgetBalance")?.value ?? 0;
   const observed = payload[0]?.payload?.observedBalance ?? null;
 
   return (
     <div className="chart-tooltip">
       <strong>{formatDateLabel(label)}</strong>
       <p>Saldo real conciliado: {money(estimated, "USD")}</p>
-      <p>Saldo esperado segun presupuesto: {money(budget, "USD")}</p>
       {observed != null ? <p>Saldo observado registrado: {money(observed, "USD")}</p> : null}
-      <p>Diferencia: {money(estimated - budget, "USD")}</p>
-    </div>
-  );
-}
-
-function UnbudgetedChartTooltip({ active, payload }) {
-  if (!active || !payload?.length) return null;
-
-  const point = payload[0]?.payload;
-  if (!point) return null;
-
-  return (
-    <div className="chart-tooltip">
-      <strong>{point.fullLabel}</strong>
-      <p>Gasto no presupuestado: {money(point.unbudgeted, "USD")}</p>
     </div>
   );
 }
@@ -3339,7 +3247,7 @@ function defaultBudgetForm() {
     amount: "",
     currency: "USD",
     frequency: "Mensual",
-    startDate: localDate(),
+    startDate: firstDayOfMonth(localDate().slice(0, 7)),
     endDate: "",
     isRecurringIndefinite: true,
     linkedCategories: [],
@@ -3464,6 +3372,32 @@ function getBudgetCategories(budget) {
   return sortLabelsAlphabetically([...new Set(categories)]).slice(0, 12);
 }
 
+function resolveBudgetMonthKey(value) {
+  const trimmedValue = String(value ?? "").trim();
+  if (!trimmedValue) return "";
+
+  const monthKey = trimmedValue.slice(0, 7);
+  return isValidMonthKey(monthKey) ? monthKey : "";
+}
+
+function normalizeBudgetStartDate(value) {
+  const monthKey = resolveBudgetMonthKey(value);
+  return monthKey ? firstDayOfMonth(monthKey) : firstDayOfMonth(localDate().slice(0, 7));
+}
+
+function normalizeBudgetEndDate(value) {
+  const monthKey = resolveBudgetMonthKey(value);
+  return monthKey ? lastDayOfMonth(monthKey) : "";
+}
+
+function normalizeBudgetDates(budget) {
+  return {
+    ...budget,
+    startDate: normalizeBudgetStartDate(budget?.startDate),
+    endDate: budget?.isRecurringIndefinite ? "" : normalizeBudgetEndDate(budget?.endDate),
+  };
+}
+
 function localId(prefix) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -3525,19 +3459,18 @@ function sanitizeWorkspace(workspace) {
         id,
         (() => {
           const categories = getBudgetCategories(value);
-
-          return {
-          name: String(value?.name ?? "").trim(),
-          amount: Number(value?.amount) || 0,
-          currency: value?.currency === "CLP" ? "CLP" : "USD",
-          category: categories[0] ?? fixedExpenseCategories[0] ?? expenseCategories[0] ?? "Otros",
-          frequency: expenseFrequencies.includes(String(value?.frequency ?? "")) ? String(value?.frequency) : "Mensual",
-          startDate: String(value?.startDate ?? localDate()),
-          endDate: String(value?.endDate ?? "").trim(),
-          isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
-          linkedCategories: categories.length ? categories : [fixedExpenseCategories[0] ?? expenseCategories[0] ?? "Otros"],
-          createdAt: Number(value?.createdAt) || Date.now(),
-          };
+          return normalizeBudgetDates({
+            name: String(value?.name ?? "").trim(),
+            amount: Number(value?.amount) || 0,
+            currency: value?.currency === "CLP" ? "CLP" : "USD",
+            category: categories[0] ?? fixedExpenseCategories[0] ?? expenseCategories[0] ?? "Otros",
+            frequency: expenseFrequencies.includes(String(value?.frequency ?? "")) ? String(value?.frequency) : "Mensual",
+            startDate: String(value?.startDate ?? localDate()),
+            endDate: String(value?.endDate ?? "").trim(),
+            isRecurringIndefinite: Boolean(value?.isRecurringIndefinite),
+            linkedCategories: categories.length ? categories : [fixedExpenseCategories[0] ?? expenseCategories[0] ?? "Otros"],
+            createdAt: Number(value?.createdAt) || Date.now(),
+          });
         })(),
       ]),
     ),
@@ -4270,172 +4203,6 @@ function summarizeOccurrenceGroupLabel(items, fallbackLabel) {
   return `${names[0]} + ${names.length - 1} mas`;
 }
 
-function buildBudgetComparisonModel({ budgets, expenses, incomes = [], currentDateKey, analysisSettings }) {
-  const settings = sanitizeAnalysisSettings(analysisSettings);
-  const chartSettings = getChartMonthSettings(settings);
-  const currentMonthKey = String(currentDateKey ?? "").slice(0, 7);
-  const monthParts = getMonthRangePartsFromMonths(chartSettings.chartStartMonth, chartSettings.chartEndMonth);
-  const monthMap = Object.fromEntries(monthParts.map((part) => [part.key, { ...part, budgeted: 0, actual: 0, unbudgeted: 0 }]));
-  const budgetDisplayEnd = maxDateKey(
-    settings.endDate,
-    currentDateKey,
-    ...budgets.map((budget) => budget.endDate || budget.startDate || currentDateKey),
-  );
-  const periodsByBudget = {};
-  const periodsByCategory = Object.fromEntries(expenseCategories.map((category) => [category, []]));
-  let currentUnbudgeted = 0;
-
-  for (const budget of budgets) {
-    const periods = buildBudgetPeriods({
-      budget,
-      displayEnd: budgetDisplayEnd,
-    });
-
-    periodsByBudget[budget.id] = periods;
-
-    for (const period of periods) {
-      if (monthMap[period.monthKey]) {
-        monthMap[period.monthKey].budgeted += period.plannedAmount;
-      }
-
-      for (const category of getBudgetCategories(budget)) {
-        if (!periodsByCategory[category]) {
-          periodsByCategory[category] = [];
-        }
-        periodsByCategory[category].push(period);
-      }
-    }
-  }
-
-  for (const category of Object.keys(periodsByCategory)) {
-    periodsByCategory[category].sort((left, right) => compareSortValues(left.startKey, right.startKey, "asc"));
-  }
-
-  for (const expense of expenses) {
-    const occurrenceDates = buildRecurringDates({
-      startDate: expense.movementDate ?? expense.date,
-      frequency: expense.frequency,
-      endDate: expense.endDate,
-      isRecurringIndefinite: expense.isRecurringIndefinite,
-      displayEnd: budgetDisplayEnd,
-    });
-    const amount = Number(expense.amount) || 0;
-    const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
-
-    for (const date of occurrenceDates) {
-      const monthKey = String(date).slice(0, 7);
-      const matchedPeriod = findBudgetPeriodForDate(periodsByCategory[category] ?? [], date);
-
-      if (matchedPeriod) {
-        matchedPeriod.actualAmount += amount;
-        if (date <= currentDateKey) {
-          matchedPeriod.actualToDateAmount += amount;
-        }
-        if (monthMap[monthKey]) {
-          monthMap[monthKey].actual += amount;
-        }
-        continue;
-      }
-
-      if (monthMap[monthKey]) {
-        monthMap[monthKey].unbudgeted += amount;
-      }
-      if (monthKey === currentMonthKey && date <= currentDateKey) {
-        currentUnbudgeted += amount;
-      }
-    }
-  }
-
-  for (const income of incomes) {
-    if (!income.isReimbursement) continue;
-
-    const occurrenceDates = buildIncomeOccurrenceEntries({
-      income,
-      displayEnd: budgetDisplayEnd,
-    });
-    const amount = -(Number(income.amount) || 0);
-    const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
-
-    for (const occurrence of occurrenceDates) {
-      const date = occurrence.date;
-      const monthKey = String(date).slice(0, 7);
-      const matchedPeriod = findBudgetPeriodForDate(periodsByCategory[category] ?? [], date);
-
-      if (matchedPeriod) {
-        matchedPeriod.actualAmount += amount;
-        if (date <= currentDateKey) {
-          matchedPeriod.actualToDateAmount += amount;
-        }
-        if (monthMap[monthKey]) {
-          monthMap[monthKey].actual += amount;
-        }
-        continue;
-      }
-
-      if (monthMap[monthKey]) {
-        monthMap[monthKey].unbudgeted += amount;
-      }
-      if (monthKey === currentMonthKey && date <= currentDateKey) {
-        currentUnbudgeted += amount;
-      }
-    }
-  }
-
-  const currentBudgets = budgets
-    .map((budget) => ({
-      id: budget.id,
-      name: budget.name ?? "",
-      currency: budget.currency ?? "USD",
-      frequency: budget.frequency ?? "Mensual",
-      linkedCategories: getBudgetCategories(budget),
-      scheduleLabel: buildBudgetScheduleLabel(budget),
-      ...pickBudgetSnapshot(periodsByBudget[budget.id] ?? [], currentDateKey),
-    }))
-    .sort((left, right) => {
-      const rankResult = budgetSnapshotStatusRank(left.status) - budgetSnapshotStatusRank(right.status);
-      if (rankResult !== 0) return rankResult;
-      const rangeResult = compareSortValues(left.rangeSortKey, right.rangeSortKey, "asc");
-      if (rangeResult !== 0) return rangeResult;
-      return compareSortValues(left.name, right.name, "asc");
-    });
-
-  const summary = currentBudgets.reduce(
-    (result, budget) => {
-      if (budget.status !== "active") return result;
-      result.activeBudgetCount += 1;
-      result.budgetedCurrent += budget.plannedAmount;
-      result.actualCurrent += budget.actualAmount;
-      return result;
-    },
-    { activeBudgetCount: 0, budgetedCurrent: 0, actualCurrent: 0 },
-  );
-
-  const monthlyPoints = monthParts.map((part) => ({
-    key: part.key,
-    shortLabel: part.shortLabel,
-    yearLabel: part.yearLabel,
-    fullLabel: part.fullLabel,
-    budgeted: monthMap[part.key]?.budgeted ?? 0,
-    actual: monthMap[part.key]?.actual ?? 0,
-    unbudgeted: monthMap[part.key]?.unbudgeted ?? 0,
-  }));
-  const chartPoints = monthlyPoints;
-
-  return {
-    summary: {
-      ...summary,
-      differenceCurrent: summary.budgetedCurrent - summary.actualCurrent,
-      unbudgetedCurrent: currentUnbudgeted,
-    },
-    currentBudgets,
-    monthlyPoints,
-    chartPoints,
-    chartWindowLabel: chartPoints.length
-      ? `Ventana ${chartPoints[0].fullLabel} - ${chartPoints[chartPoints.length - 1].fullLabel}`
-      : "Sin datos para el rango actual.",
-  };
-}
-
 function buildBudgetMonthlyOverviewModel({ budgets, expenses, incomes = [], currentDateKey, analysisSettings, selectedMonthKey }) {
   const settings = sanitizeAnalysisSettings(analysisSettings);
   const chartSettings = getChartMonthSettings(settings);
@@ -4597,20 +4364,21 @@ function resolveIncomeSharePercent(value, totalIncome) {
 }
 
 function buildBudgetPeriods({ budget, displayEnd }) {
+  const normalizedBudget = normalizeBudgetDates(budget);
   const periods = buildRecurringDates({
-    startDate: budget.startDate,
-    frequency: budget.frequency,
-    endDate: budget.endDate,
-    isRecurringIndefinite: budget.isRecurringIndefinite,
+    startDate: normalizedBudget.startDate,
+    frequency: normalizedBudget.frequency,
+    endDate: normalizedBudget.endDate,
+    isRecurringIndefinite: normalizedBudget.isRecurringIndefinite,
     displayEnd,
   });
 
   return periods.map((startKey) => ({
-    id: `${budget.id}_${startKey}`,
+    id: `${normalizedBudget.id}_${startKey}`,
     startKey,
-    endKey: getBudgetPeriodEndKey({ budget, startKey, displayEnd }),
+    endKey: getBudgetPeriodEndKey({ budget: normalizedBudget, startKey, displayEnd }),
     monthKey: String(startKey).slice(0, 7),
-    plannedAmount: Number(budget.amount) || 0,
+    plannedAmount: Number(normalizedBudget.amount) || 0,
     actualAmount: 0,
     actualToDateAmount: 0,
   }));
@@ -4620,7 +4388,7 @@ function getBudgetPeriodEndKey({ budget, startKey, displayEnd }) {
   const hardEnd = !budget.isRecurringIndefinite && budget.endDate ? minDateKey(budget.endDate, displayEnd) : displayEnd;
 
   if (budget.frequency === "Unico") {
-    return minDateKey(startKey, hardEnd);
+    return minDateKey(lastDayOfMonth(String(startKey).slice(0, 7)), hardEnd);
   }
 
   if (!budget.isRecurringIndefinite && !budget.endDate) {
@@ -4635,77 +4403,16 @@ function getBudgetPeriodEndKey({ budget, startKey, displayEnd }) {
   return minDateKey(localDate(addDays(nextStart, -1)), hardEnd);
 }
 
-function findBudgetPeriodForDate(periods, date) {
-  return periods.find((period) => period.startKey <= date && date <= period.endKey) ?? null;
-}
-
-function pickBudgetSnapshot(periods, currentDateKey) {
-  if (!periods.length) {
-    return {
-      status: "empty",
-      statusLabel: "Sin periodos",
-      rangeLabel: "Sin rango disponible",
-      rangeSortKey: "9999-12-31",
-      plannedAmount: 0,
-      actualAmount: 0,
-      differenceAmount: 0,
-    };
-  }
-
-  const activePeriod = periods.find((period) => period.startKey <= currentDateKey && currentDateKey <= period.endKey);
-  if (activePeriod) {
-    return createBudgetSnapshot(activePeriod, "active", "Periodo actual", activePeriod.actualToDateAmount);
-  }
-
-  const nextPeriod = periods.find((period) => period.startKey > currentDateKey);
-  if (nextPeriod) {
-    return createBudgetSnapshot(nextPeriod, "upcoming", "Proximo periodo", 0);
-  }
-
-  const lastPeriod = periods[periods.length - 1];
-  return createBudgetSnapshot(lastPeriod, "ended", "Ultimo periodo", lastPeriod.actualAmount);
-}
-
-function createBudgetSnapshot(period, status, statusLabel, actualAmount) {
-  return {
-    status,
-    statusLabel,
-    rangeLabel: formatPeriodLabel(period.startKey, period.endKey),
-    rangeSortKey: period.startKey,
-    plannedAmount: period.plannedAmount,
-    actualAmount,
-    differenceAmount: period.plannedAmount - actualAmount,
-  };
-}
-
-function budgetSnapshotStatusRank(status) {
-  switch (status) {
-    case "active":
-      return 0;
-    case "upcoming":
-      return 1;
-    case "ended":
-      return 2;
-    default:
-      return 3;
-  }
-}
-
 function buildBudgetScheduleLabel(budget) {
-  const startLabel = formatDateLabel(budget.startDate);
-  if (budget.isRecurringIndefinite) {
-    return `${budget.frequency} desde ${startLabel}, sin fecha de termino.`;
+  const normalizedBudget = normalizeBudgetDates(budget);
+  const startLabel = formatMonthLabel(normalizedBudget.startDate.slice(0, 7));
+  if (normalizedBudget.isRecurringIndefinite) {
+    return `${normalizedBudget.frequency} desde ${startLabel}, sin fecha de termino.`;
   }
-  if (budget.endDate) {
-    return `${budget.frequency} desde ${startLabel} hasta ${formatDateLabel(budget.endDate)}.`;
+  if (normalizedBudget.endDate) {
+    return `${normalizedBudget.frequency} desde ${startLabel} hasta ${formatMonthLabel(normalizedBudget.endDate.slice(0, 7))}.`;
   }
-  return `${budget.frequency} con inicio en ${startLabel}.`;
-}
-
-function formatPeriodLabel(startKey, endKey) {
-  if (!startKey) return "Sin rango";
-  if (!endKey || startKey === endKey) return formatDateLabel(startKey);
-  return `${formatDateLabel(startKey)} - ${formatDateLabel(endKey)}`;
+  return `${normalizedBudget.frequency} con inicio en ${startLabel}.`;
 }
 
 function getMonthRangePartsFromMonths(startMonthKey, endMonthKey) {
@@ -4776,23 +4483,11 @@ function isValidMonthKey(value) {
   return /^\d{4}-\d{2}$/.test(String(value ?? ""));
 }
 
-function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, balanceSnapshots = [], currentDateKey, analysisSettings }) {
+function buildBalanceTrendModel({ expenses, incomes, adjustments, balanceSnapshots = [], currentDateKey, analysisSettings }) {
   const chartRange = toChartAnalysisSettings(analysisSettings);
   const observedBalanceByDate = Object.fromEntries(
     (balanceSnapshots ?? []).map((snapshot) => [snapshot.date, calculateBalanceSnapshotObservedTotal(snapshot)]),
   );
-  const budgetExpenses = budgets.map((budget) => ({
-    id: budget.id,
-    name: budget.name,
-    amount: budget.amount,
-    currency: budget.currency,
-    category: getBudgetCategories(budget)[0] ?? "Otros",
-    frequency: budget.frequency,
-    movementDate: budget.startDate,
-    endDate: budget.endDate,
-    isRecurringIndefinite: budget.isRecurringIndefinite,
-    createdAt: budget.createdAt,
-  }));
   const estimatedModel = buildCashflowModel({
     expenses,
     incomes,
@@ -4800,21 +4495,12 @@ function buildBalanceTrendModel({ budgets, expenses, incomes, adjustments, balan
     currentDateKey,
     analysisSettings: chartRange,
   });
-  const budgetModel = buildCashflowModel({
-    expenses: budgetExpenses,
-    incomes,
-    adjustments,
-    currentDateKey,
-    analysisSettings: chartRange,
-  });
   const estimatedRow = estimatedModel.rows.find((row) => row.key === "closingBalance");
-  const budgetRow = budgetModel.rows.find((row) => row.key === "closingBalance");
   const dailyPoints = estimatedModel.dates.map((date) => ({
     key: date.key,
     date: date.key,
     shortLabel: date.shortLabel,
     estimatedBalance: estimatedRow?.values?.[date.key] ?? 0,
-    budgetBalance: budgetRow?.values?.[date.key] ?? 0,
     hasObservedSnapshot: date.key in observedBalanceByDate,
     observedBalance: observedBalanceByDate[date.key] ?? null,
   }));
@@ -5654,13 +5340,6 @@ function formatMonthLabel(monthKey) {
   return formatDateValue(date, "MM/yyyy");
 }
 
-function formatMonthTick(monthKey) {
-  if (!isValidMonthKey(monthKey)) return monthKey;
-  const date = parseDateKey(firstDayOfMonth(monthKey));
-  if (!isValidDate(date)) return monthKey;
-  return formatDateValue(date, "MM/yy");
-}
-
 function formatBalanceTrendTick(dateKey, resolution = "daily") {
   if (!dateKey) return "";
   const date = parseDateKey(dateKey);
@@ -5680,7 +5359,7 @@ function formatBalanceTrendTick(dateKey, resolution = "daily") {
 }
 
 function resolveBalanceChartDomain(points) {
-  const values = points.flatMap((point) => [point.estimatedBalance, point.budgetBalance]).filter((value) => Number.isFinite(Number(value)));
+  const values = points.map((point) => point.estimatedBalance).filter((value) => Number.isFinite(Number(value)));
   if (!values.length) return [0, 1];
 
   let minValue = Math.min(...values);
