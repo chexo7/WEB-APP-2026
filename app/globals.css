@@ -1913,6 +1913,134 @@ button {
   gap: 0.9rem;
 }
 
+.budget-balance-panel {
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(251, 253, 255, 0.98) 0%, rgba(245, 249, 254, 0.98) 100%);
+}
+
+.budget-balance-panel .button-row,
+.budget-balance-panel .success-text,
+.budget-balance-panel .error-text {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+
+.budget-balance-panel .button-row {
+  padding-top: 0.95rem;
+}
+
+.budget-balance-panel .success-text,
+.budget-balance-panel .error-text {
+  padding-bottom: 1rem;
+}
+
+.budget-reconciliation-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+}
+
+.budget-reconciliation-helper {
+  margin: 0;
+  padding: 0 1rem 1rem;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.budget-reconciliation-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.9rem;
+  padding: 0 1rem 0.2rem;
+}
+
+.budget-reconciliation-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: end;
+  padding: 0 1rem;
+}
+
+.budget-snapshot-list-panel,
+.balance-snapshot-list {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.balance-snapshot-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.9rem;
+  align-items: center;
+  padding: 0.95rem 1rem;
+  border: 1px solid rgba(87, 112, 144, 0.16);
+  border-radius: 18px;
+  background:
+    radial-gradient(circle at top right, rgba(77, 147, 228, 0.12), transparent 26%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(244, 249, 255, 0.95) 100%);
+}
+
+.balance-snapshot-copy,
+.balance-snapshot-head,
+.balance-snapshot-metrics {
+  display: grid;
+}
+
+.balance-snapshot-copy {
+  gap: 0.85rem;
+}
+
+.balance-snapshot-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.8rem;
+  align-items: start;
+}
+
+.balance-snapshot-head strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.balance-snapshot-head p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.balance-snapshot-metrics {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
+}
+
+.balance-snapshot-metrics div {
+  padding: 0.72rem 0.8rem;
+  border: 1px solid rgba(87, 112, 144, 0.12);
+  border-radius: 14px;
+  background: rgba(249, 251, 255, 0.96);
+}
+
+.balance-snapshot-metrics span,
+.balance-snapshot-metrics strong {
+  display: block;
+}
+
+.balance-snapshot-metrics span {
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.balance-snapshot-metrics strong {
+  margin-top: 0.24rem;
+  color: var(--accent-strong);
+  font-size: 0.96rem;
+}
+
 .budget-monthly-shell {
   display: grid;
   gap: 1rem;
@@ -2247,6 +2375,12 @@ button {
 
 .chart-scroll-copy {
   margin: -0.35rem 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.chart-reconciliation-note {
+  margin: -0.3rem 0 -0.1rem;
   color: var(--muted);
   font-size: 0.78rem;
 }
@@ -2637,6 +2771,11 @@ button {
   min-width: 760px;
 }
 
+.reconciliation-origin-cell {
+  display: grid;
+  gap: 0.32rem;
+}
+
 @supports (content-visibility: auto) {
   .panel-card,
   .budget-card,
@@ -2776,7 +2915,8 @@ button {
 
   .budget-inline-summary,
   .budget-monthly-summary,
-  .budget-card-metrics {
+  .budget-card-metrics,
+  .budget-reconciliation-summary {
     grid-template-columns: 1fr;
   }
 
@@ -2925,7 +3065,10 @@ button {
   .budget-category-header,
   .budget-card-top,
   .budget-monthly-toolbar,
-  .budget-monthly-block-row {
+  .budget-monthly-block-row,
+  .balance-snapshot-row,
+  .balance-snapshot-head,
+  .budget-reconciliation-actions {
     grid-template-columns: 1fr;
     display: grid;
   }
@@ -2935,6 +3078,11 @@ button {
   }
 
   .budget-monthly-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .budget-reconciliation-grid,
+  .balance-snapshot-metrics {
     grid-template-columns: 1fr;
   }
 

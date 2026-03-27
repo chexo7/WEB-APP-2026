@@ -53,6 +53,22 @@ function getImpact(adjustment) {
   return { color: "gray", label: "Sin efecto" };
 }
 
+function getAdjustmentOrigin(adjustment) {
+  if (adjustment.sourceType === "balance-snapshot") {
+    return {
+      color: "cyan",
+      detail: adjustment.label || "Cuadre generado desde un saldo observado.",
+      label: "Saldo observado",
+    };
+  }
+
+  return {
+    color: "indigo",
+    detail: adjustment.label || "Cuadre manual libre.",
+    label: "Manual",
+  };
+}
+
 export default function ReconciliationTable({
   adjustments,
   adjustmentSort,
@@ -71,12 +87,21 @@ export default function ReconciliationTable({
       },
       {
         id: "type",
-        header: () => <SortHeader currentSort={adjustmentSort} label="Categoria" onSortChange={onSortChange} sortKey="type" />,
-        cell: () => (
-          <Badge color="indigo" radius="sm" size="sm" variant="light">
-            Cuadre
-          </Badge>
-        ),
+        header: () => <SortHeader currentSort={adjustmentSort} label="Origen" onSortChange={onSortChange} sortKey="type" />,
+        cell: ({ row }) => {
+          const origin = getAdjustmentOrigin(row.original);
+
+          return (
+            <div className="reconciliation-origin-cell">
+              <Badge color={origin.color} radius="sm" size="sm" variant="light">
+                {origin.label}
+              </Badge>
+              <Text c="dimmed" size="xs">
+                {origin.detail}
+              </Text>
+            </div>
+          );
+        },
       },
       {
         id: "amount",
