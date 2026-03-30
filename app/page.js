@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import { startTransition, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Tabs as MantineTabs, Text } from "@mantine/core";
 import {
   addDays as addCalendarDays,
@@ -20,7 +20,7 @@ import {
 } from "date-fns";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut } from "firebase/auth";
 import { get, onValue, push, ref, set } from "firebase/database";
-import { CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceArea, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import ExpenseImportModal from "@/components/expense-import-modal";
 import ExpensesTable from "@/components/expenses-table";
 import IncomesTable from "@/components/incomes-table";
@@ -3119,12 +3119,32 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
   const width = useMemo(() => resolveBalanceTrendChartWidth(model.dailyPoints.length, resolution), [model.dailyPoints.length, resolution]);
   const xTickFormatter = useMemo(() => (value) => formatBalanceTrendTick(value, resolution), [resolution]);
   const minTickGap = resolution === "monthly" ? 10 : resolution === "weekly" ? 20 : 28;
+  const hatchId = useId().replace(/:/g, "");
+  const hasNegativeZone = Array.isArray(model.yDomain) && Number(model.yDomain[0]) <= 0;
+  const negativeZoneFloor = hasNegativeZone ? Math.min(Number(model.yDomain[0]), 0) : null;
+
+  function renderNegativeBalanceZone() {
+    if (!hasNegativeZone || negativeZoneFloor == null) return null;
+
+    return (
+      <>
+        <defs>
+          <pattern height="8" id={hatchId} patternTransform="rotate(45)" patternUnits="userSpaceOnUse" width="8">
+            <rect fill="rgba(220, 38, 38, 0.12)" height="8" width="8" x="0" y="0" />
+            <line stroke="rgba(220, 38, 38, 0.5)" strokeWidth="3" x1="0" x2="0" y1="0" y2="8" />
+          </pattern>
+        </defs>
+        <ReferenceArea fill={`url(#${hatchId})`} ifOverflow="extendDomain" y1={negativeZoneFloor} y2={0} />
+      </>
+    );
+  }
 
   return (
     <div className="chart-sync-shell">
       <div className="chart-axis-pane">
         <ResponsiveContainer height="100%" width="100%">
           <LineChart data={model.dailyPoints} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
+            {renderNegativeBalanceZone()}
             <YAxis
               domain={model.yDomain}
               tick={{ fill: "#5a6f88", fontSize: 11 }}
@@ -3140,6 +3160,7 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
         <div className="chart-scroll-content chart-scroll-content-linear" style={{ width: `${width}px`, height: "360px" }}>
           <ResponsiveContainer height="100%" width="100%">
             <LineChart data={model.dailyPoints} margin={{ top: 16, right: 20, left: 0, bottom: 8 }}>
+            {renderNegativeBalanceZone()}
             <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" />
             <XAxis
               dataKey="date"
