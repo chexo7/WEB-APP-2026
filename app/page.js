@@ -3122,6 +3122,29 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
   const hatchId = useId().replace(/:/g, "");
   const hasNegativeZone = Array.isArray(model.yDomain) && Number(model.yDomain[0]) <= 0;
   const negativeZoneFloor = hasNegativeZone ? Math.min(Number(model.yDomain[0]), 0) : null;
+  const yAxisTicks = useMemo(() => {
+    if (!Array.isArray(model.yDomain)) return [];
+
+    const lowerBound = Number(model.yDomain[0]);
+    const upperBound = Number(model.yDomain[1]);
+
+    if (!Number.isFinite(lowerBound) || !Number.isFinite(upperBound)) {
+      return [];
+    }
+
+    const tickStart = Math.floor(lowerBound / 1000) * 1000;
+    const tickEnd = Math.ceil(upperBound / 1000) * 1000;
+    const ticks = [];
+
+    for (let value = tickStart; value <= tickEnd; value += 1000) {
+      ticks.push(value);
+    }
+
+    return ticks;
+  }, [model.yDomain]);
+  const positiveGuideValues = useMemo(() => {
+    return yAxisTicks.filter((value) => value > 0);
+  }, [yAxisTicks]);
 
   function renderNegativeBalanceZone() {
     if (!hasNegativeZone || negativeZoneFloor == null) return null;
@@ -3149,6 +3172,7 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               domain={model.yDomain}
               tick={{ fill: "#5a6f88", fontSize: 11 }}
               tickFormatter={formatCompactCurrency}
+              ticks={yAxisTicks}
               width={72}
             />
             <Line dataKey="estimatedBalance" dot={false} isAnimationActive={false} stroke="transparent" strokeWidth={0} />
@@ -3170,8 +3194,11 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               tickFormatter={xTickFormatter}
               ticks={resolution === "daily" ? undefined : axisTicks}
             />
-            <YAxis domain={model.yDomain} hide />
+            <YAxis domain={model.yDomain} hide ticks={yAxisTicks} />
             <Tooltip content={<BalanceChartTooltip />} />
+            {positiveGuideValues.map((value) => (
+              <ReferenceLine key={`positive-guide-${value}`} stroke="rgba(34, 197, 94, 0.22)" strokeDasharray="2 6" y={value} />
+            ))}
             {model.dailyPoints.some((point) => point.date === todayKey) ? (
               <ReferenceLine label={{ fill: "#163e68", fontSize: 11, value: "Hoy" }} stroke="#163e68" strokeDasharray="4 4" x={todayKey} />
             ) : null}
