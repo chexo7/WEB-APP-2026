@@ -2776,6 +2776,426 @@ button {
   gap: 0.32rem;
 }
 
+.mobile-cashflow-shell,
+.mobile-cashflow-shell * {
+  letter-spacing: 0;
+}
+
+.mobile-cashflow-shell {
+  min-height: 100vh;
+  padding: max(0.65rem, env(safe-area-inset-top)) 0 max(1rem, env(safe-area-inset-bottom));
+  background: #f5f7fb;
+  color: #111827;
+}
+
+.mobile-cashflow-shell button {
+  font: inherit;
+}
+
+.mobile-cashflow-top {
+  display: grid;
+  gap: 0.65rem;
+  width: min(100% - 1rem, 520px);
+  margin: 0 auto;
+  padding: 0.2rem 0 0.65rem;
+  border-bottom: 1px solid rgba(75, 85, 99, 0.16);
+}
+
+.mobile-brand-row,
+.mobile-user-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.mobile-brand-copy {
+  min-width: 0;
+}
+
+.mobile-brand-copy span {
+  display: block;
+  color: #0f766e;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mobile-brand-copy h1 {
+  margin: 0.05rem 0 0;
+  color: #111827;
+  font-size: 1.55rem;
+  line-height: 1.08;
+  font-weight: 800;
+}
+
+.mobile-outline-button,
+.mobile-ghost-button,
+.mobile-tab-button,
+.mobile-resolution-button,
+.mobile-date-chip,
+.mobile-return-button {
+  min-height: 42px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.mobile-outline-button {
+  padding: 0.58rem 0.68rem;
+  border: 1px solid rgba(15, 118, 110, 0.42);
+  background: #ffffff;
+  color: #0f766e;
+  font-size: 0.8rem;
+  font-weight: 800;
+}
+
+.mobile-ghost-button {
+  padding: 0.48rem 0.62rem;
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  background: #ffffff;
+  color: #4b5563;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mobile-meta-row {
+  display: flex;
+  gap: 0.42rem;
+  overflow-x: auto;
+  padding-bottom: 0.08rem;
+  scrollbar-width: none;
+}
+
+.mobile-meta-row::-webkit-scrollbar,
+.mobile-date-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.mobile-meta-row span {
+  flex: 0 0 auto;
+  max-width: 78vw;
+  padding: 0.42rem 0.55rem;
+  border: 1px solid rgba(75, 85, 99, 0.14);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #58616f;
+  font-size: 0.74rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-user-row span {
+  min-width: 0;
+  color: #58616f;
+  font-size: 0.8rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mobile-tabbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  width: min(100% - 1rem, 520px);
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem;
+  margin: 0.65rem auto 0;
+  padding: 0.42rem;
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  border-radius: 8px;
+  background: rgba(245, 247, 251, 0.96);
+  backdrop-filter: blur(12px);
+}
+
+.mobile-tab-button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: #58616f;
+  font-size: 0.86rem;
+  font-weight: 800;
+}
+
+.mobile-tab-button.is-active {
+  border-color: rgba(17, 24, 39, 0.14);
+  background: #111827;
+  color: #ffffff;
+}
+
+.mobile-cashflow-content {
+  width: min(100% - 1rem, 520px);
+  margin: 0 auto;
+  padding: 0.85rem 0 1.1rem;
+}
+
+.mobile-section {
+  display: grid;
+  gap: 0.85rem;
+}
+
+.mobile-section-heading {
+  display: grid;
+  gap: 0.18rem;
+}
+
+.mobile-section-heading h2,
+.mobile-list-heading h3 {
+  margin: 0;
+  color: #111827;
+  font-weight: 800;
+}
+
+.mobile-section-heading h2 {
+  font-size: 1.18rem;
+}
+
+.mobile-section-heading p {
+  margin: 0;
+  color: #58616f;
+  font-size: 0.84rem;
+  overflow-wrap: anywhere;
+}
+
+.mobile-resolution-control {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.42rem;
+}
+
+.mobile-resolution-button {
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  background: #ffffff;
+  color: #4b5563;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.mobile-resolution-button.is-active {
+  border-color: rgba(15, 118, 110, 0.38);
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.mobile-date-strip {
+  display: flex;
+  gap: 0.48rem;
+  margin: 0 -0.5rem;
+  padding: 0 0.5rem 0.08rem;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+
+.mobile-date-chip {
+  flex: 0 0 5.9rem;
+  display: grid;
+  gap: 0.12rem;
+  align-content: center;
+  padding: 0.58rem 0.52rem;
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  background: #ffffff;
+  color: #111827;
+  text-align: left;
+  scroll-snap-align: start;
+}
+
+.mobile-date-chip.is-active {
+  border-color: rgba(37, 99, 235, 0.48);
+  background: #dbeafe;
+}
+
+.mobile-date-chip span {
+  color: #58616f;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.mobile-date-chip strong {
+  color: #111827;
+  font-size: 0.88rem;
+  line-height: 1.12;
+  overflow-wrap: anywhere;
+}
+
+.mobile-selected-period {
+  display: flex;
+  justify-content: center;
+  padding: 0.48rem 0.62rem;
+  border: 1px solid rgba(75, 85, 99, 0.14);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #4b5563;
+  font-size: 0.82rem;
+  font-weight: 800;
+  text-align: center;
+}
+
+.mobile-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.mobile-metric {
+  min-width: 0;
+  display: grid;
+  gap: 0.18rem;
+  padding: 0.72rem;
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  border-left: 4px solid #6b7280;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.mobile-metric span {
+  color: #58616f;
+  font-size: 0.74rem;
+  font-weight: 800;
+}
+
+.mobile-metric strong {
+  color: #111827;
+  font-size: 1rem;
+  line-height: 1.14;
+  overflow-wrap: anywhere;
+}
+
+.mobile-metric em {
+  color: #58616f;
+  font-size: 0.72rem;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.mobile-metric.is-positive {
+  border-left-color: #0f766e;
+}
+
+.mobile-metric.is-warning {
+  border-left-color: #d97706;
+}
+
+.mobile-metric.is-negative {
+  border-left-color: #dc2626;
+}
+
+.mobile-list-heading {
+  margin-top: 0.15rem;
+}
+
+.mobile-list-heading h3 {
+  font-size: 0.96rem;
+}
+
+.mobile-cashflow-list {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.mobile-cashflow-row {
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  border-left: 4px solid #6b7280;
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.mobile-cashflow-row.is-positive {
+  border-left-color: #0f766e;
+}
+
+.mobile-cashflow-row.is-warning {
+  border-left-color: #d97706;
+}
+
+.mobile-cashflow-row.is-negative {
+  border-left-color: #dc2626;
+}
+
+.mobile-cashflow-row summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-height: 52px;
+  padding: 0.66rem 0.72rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.mobile-cashflow-row summary::-webkit-details-marker {
+  display: none;
+}
+
+.mobile-row-title {
+  min-width: 0;
+  color: #111827;
+  font-size: 0.88rem;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.mobile-row-amount {
+  color: #111827;
+  font-size: 0.9rem;
+  font-weight: 900;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.mobile-row-details {
+  display: grid;
+  gap: 0.34rem;
+  padding: 0 0.72rem 0.72rem;
+}
+
+.mobile-row-details p {
+  margin: 0;
+  padding-top: 0.34rem;
+  border-top: 1px solid rgba(75, 85, 99, 0.12);
+  color: #4b5563;
+  font-size: 0.8rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.mobile-empty-copy {
+  margin: 0;
+  padding: 0.74rem;
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  border-radius: 8px;
+  background: #ffffff;
+  color: #58616f;
+  font-size: 0.84rem;
+}
+
+.mobile-chart-frame {
+  height: 330px;
+  min-height: 330px;
+  padding: 0.4rem 0.2rem 0;
+  border: 1px solid rgba(75, 85, 99, 0.16);
+  border-radius: 8px;
+  background: #ffffff;
+  overflow: hidden;
+}
+
+.mobile-return-button {
+  position: fixed;
+  right: max(0.8rem, env(safe-area-inset-right));
+  bottom: max(0.8rem, env(safe-area-inset-bottom));
+  z-index: 60;
+  padding: 0.65rem 0.85rem;
+  border: 1px solid rgba(17, 24, 39, 0.18);
+  background: #111827;
+  color: #ffffff;
+  box-shadow: 0 12px 26px rgba(17, 24, 39, 0.22);
+  font-size: 0.82rem;
+  font-weight: 800;
+}
+
 @supports (content-visibility: auto) {
   .panel-card,
   .budget-card,

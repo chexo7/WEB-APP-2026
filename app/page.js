@@ -95,8 +95,13 @@ export default function HomePage() {
   const [authError, setAuthError] = useState("");
   const [user, setUser] = useState(null);
   const [activeTab, setActiveTab] = useState("summary");
+  const [mobileActiveTab, setMobileActiveTab] = useState("cashflow");
+  const [forceDesktopInterface, setForceDesktopInterface] = useState(false);
   const [cashflowResolution, setCashflowResolution] = useState("daily");
+  const [mobileCashflowResolution, setMobileCashflowResolution] = useState("weekly");
+  const [mobileCashflowDateKey, setMobileCashflowDateKey] = useState("");
   const [balanceTrendResolution, setBalanceTrendResolution] = useState("daily");
+  const [mobileBalanceTrendResolution, setMobileBalanceTrendResolution] = useState("monthly");
   const [budgetOverviewMonth, setBudgetOverviewMonth] = useState(localDate().slice(0, 7));
   const [scheduleModalIncomeId, setScheduleModalIncomeId] = useState("");
   const [scheduleOccurrenceDate, setScheduleOccurrenceDate] = useState("");
@@ -144,6 +149,8 @@ export default function HomePage() {
   const deferredIncomeSearchTerm = useDeferredValue(incomeSearchTerm);
   const displayedTab = useDeferredValue(activeTab);
   const isTabTransitionPending = displayedTab !== activeTab;
+  const isMobilePortraitViewport = useMobilePortraitViewport();
+  const shouldUseMobileInterface = isMobilePortraitViewport && !forceDesktopInterface;
   const centerCashflowOnCurrentPeriod = (behavior = "auto") => {
     const mainScroller = cashflowScrollRef.current;
     const topScroller = cashflowTopScrollRef.current;
@@ -458,6 +465,21 @@ export default function HomePage() {
 
     return cashflowModelCache.monthly ?? buildCashflowResolutionModel(cashflowBaseModel, "monthly");
   }, [cashflowBaseModel, cashflowModelCache, cashflowResolution, weeklyCashflowModel]);
+  const mobileCashflowModel = useMemo(() => {
+    if (mobileCashflowResolution === "daily") {
+      return cashflowBaseModel;
+    }
+
+    if (mobileCashflowResolution === "weekly") {
+      return weeklyCashflowModel;
+    }
+
+    return cashflowModelCache.monthly ?? buildCashflowResolutionModel(cashflowBaseModel, "monthly");
+  }, [cashflowBaseModel, cashflowModelCache.monthly, mobileCashflowResolution, weeklyCashflowModel]);
+  const mobileCashflowDateKeys = useMemo(
+    () => mobileCashflowModel.dates.map((date) => date.key).join("|"),
+    [mobileCashflowModel.dates],
+  );
   const cashflowFirstDateKey = cashflowModel.dates[0]?.key ?? "";
   const cashflowLastDateKey = cashflowModel.dates[cashflowModel.dates.length - 1]?.key ?? "";
   const draftRecordCount = expenses.length + budgets.length + incomes.length + adjustments.length + balanceSnapshots.length;
@@ -636,6 +658,21 @@ export default function HomePage() {
       }
     };
   }, [cashflowBaseModel, weeklyCashflowModel]);
+
+  useEffect(() => {
+    if (!mobileCashflowModel.dates.length) {
+      if (mobileCashflowDateKey) {
+        setMobileCashflowDateKey("");
+      }
+      return;
+    }
+
+    if (mobileCashflowModel.dates.some((date) => date.key === mobileCashflowDateKey)) {
+      return;
+    }
+
+    setMobileCashflowDateKey(resolveDefaultMobileCashflowDateKey(mobileCashflowModel));
+  }, [mobileCashflowDateKey, mobileCashflowDateKeys, mobileCashflowModel]);
 
   useEffect(() => {
     if (!scheduleModalIncome) {
@@ -1424,6 +1461,17 @@ export default function HomePage() {
     });
   };
 
+  const handleMobileTabChange = (value) => {
+    setMobileActiveTab(value ?? "cashflow");
+  };
+
+  const openFullInterfaceFromMobile = () => {
+    setForceDesktopInterface(true);
+    startTransition(() => {
+      setActiveTab(mobileActiveTab === "charts" ? "charts" : "cashflow");
+    });
+  };
+
   const discardChanges = () => {
     const nextWorkspace = normalizeWorkspace(selectedVersion?.payload);
     setDraft(nextWorkspace);
@@ -1546,8 +1594,38 @@ export default function HomePage() {
     );
   }
 
+  if (shouldUseMobileInterface) {
+    return (
+      <MobileCashflowExperience
+        activeTab={mobileActiveTab}
+        balanceTrendModel={balanceTrendModel}
+        cashflowModel={mobileCashflowModel}
+        cashflowResolution={mobileCashflowResolution}
+        draftRecordCount={draftRecordCount}
+        hasUnsavedChanges={hasUnsavedChanges}
+        onCashflowDateChange={setMobileCashflowDateKey}
+        onCashflowResolutionChange={setMobileCashflowResolution}
+        onChartResolutionChange={setMobileBalanceTrendResolution}
+        onLogout={handleLogout}
+        onOpenFullInterface={openFullInterfaceFromMobile}
+        onTabChange={handleMobileTabChange}
+        chartResolution={mobileBalanceTrendResolution}
+        selectedCashflowDateKey={mobileCashflowDateKey || resolveDefaultMobileCashflowDateKey(mobileCashflowModel)}
+        todayKey={todayKey}
+        userEmail={user?.email}
+        versionLabel={selectedVersion ? labelVersion(selectedVersion) : "Sin historial"}
+      />
+    );
+  }
+
   return (
     <main className="app-shell">
+      {isMobilePortraitViewport && forceDesktopInterface ? (
+        <button className="mobile-return-button" onClick={() => setForceDesktopInterface(false)} type="button">
+          Vista movil
+        </button>
+      ) : null}
+
       <section className="topbar topbar-hero">
         <div className="topbar-copy">
           <p className="eyebrow">Flujo de caja personal</p>
@@ -3232,6 +3310,529 @@ function BalanceChartTooltip({ active, payload, label }) {
       {observed != null ? <p>Saldo observado registrado: {money(observed, "USD")}</p> : null}
     </div>
   );
+}
+
+function MobileCashflowExperience({
+  activeTab,
+  balanceTrendModel,
+  cashflowModel,
+  cashflowResolution,
+  chartResolution,
+  draftRecordCount,
+  hasUnsavedChanges,
+  onCashflowDateChange,
+  onCashflowResolutionChange,
+  onChartResolutionChange,
+  onLogout,
+  onOpenFullInterface,
+  onTabChange,
+  selectedCashflowDateKey,
+  todayKey,
+  userEmail,
+  versionLabel,
+}) {
+  return (
+    <main className="mobile-cashflow-shell">
+      <header className="mobile-cashflow-top">
+        <div className="mobile-brand-row">
+          <div className="mobile-brand-copy">
+            <span>Dinerito</span>
+            <h1>Flujo de caja</h1>
+          </div>
+
+          <button className="mobile-outline-button" onClick={onOpenFullInterface} type="button">
+            Ver interfaz general
+          </button>
+        </div>
+
+        <div className="mobile-meta-row">
+          <span>{draftRecordCount} registros</span>
+          <span>{versionLabel}</span>
+          {hasUnsavedChanges ? <span>Cambios pendientes</span> : null}
+        </div>
+
+        <div className="mobile-user-row">
+          <span>{userEmail}</span>
+          <button className="mobile-ghost-button" onClick={onLogout} type="button">
+            Cerrar sesion
+          </button>
+        </div>
+      </header>
+
+      <nav aria-label="Pestanas moviles" className="mobile-tabbar">
+        <button
+          className={activeTab === "cashflow" ? "mobile-tab-button is-active" : "mobile-tab-button"}
+          onClick={() => onTabChange("cashflow")}
+          type="button"
+        >
+          Tabla
+        </button>
+        <button
+          className={activeTab === "charts" ? "mobile-tab-button is-active" : "mobile-tab-button"}
+          onClick={() => onTabChange("charts")}
+          type="button"
+        >
+          Grafico
+        </button>
+      </nav>
+
+      <div className="mobile-cashflow-content">
+        {activeTab === "cashflow" ? (
+          <MobileCashflowTable
+            model={cashflowModel}
+            onResolutionChange={onCashflowResolutionChange}
+            onSelectedDateChange={onCashflowDateChange}
+            resolution={cashflowResolution}
+            selectedDateKey={selectedCashflowDateKey}
+          />
+        ) : (
+          <MobileBalancePanel
+            model={balanceTrendModel}
+            onResolutionChange={onChartResolutionChange}
+            resolution={chartResolution}
+            todayKey={todayKey}
+          />
+        )}
+      </div>
+    </main>
+  );
+}
+
+function MobileResolutionControl({ ariaLabel, onChange, value }) {
+  const options = [
+    { label: "Diaria", value: "daily" },
+    { label: "Semanal", value: "weekly" },
+    { label: "Mensual", value: "monthly" },
+  ];
+
+  return (
+    <div aria-label={ariaLabel} className="mobile-resolution-control" role="group">
+      {options.map((option) => (
+        <button
+          className={value === option.value ? "mobile-resolution-button is-active" : "mobile-resolution-button"}
+          key={option.value}
+          onClick={() => onChange(option.value)}
+          type="button"
+        >
+          {option.label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MobileCashflowTable({ model, onResolutionChange, onSelectedDateChange, resolution, selectedDateKey }) {
+  const dates = model?.dates ?? [];
+  const selectedDate =
+    dates.find((date) => date.key === selectedDateKey) ??
+    dates.find((date) => date.key === model?.todayKey) ??
+    dates[0] ??
+    null;
+  const cashflowRows = useMemo(() => buildMobileCashflowRows(model, selectedDate?.key), [model, selectedDate?.key]);
+  const metricItems = useMemo(() => buildMobileCashflowMetricItems(cashflowRows), [cashflowRows]);
+  const summaryRows = useMemo(() => cashflowRows.filter((row) => row.isSummary), [cashflowRows]);
+  const categoryRows = useMemo(
+    () => cashflowRows.filter((row) => !row.isSummary && Math.abs(row.value) >= 0.005),
+    [cashflowRows],
+  );
+  const closingRow = useMemo(() => model?.rows?.find((row) => row.key === "closingBalance") ?? null, [model]);
+
+  if (!selectedDate) {
+    return (
+      <section className="mobile-section">
+        <div className="mobile-section-heading">
+          <h2>Tabla</h2>
+          <p>Sin datos para el periodo seleccionado.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mobile-section">
+      <div className="mobile-section-heading">
+        <h2>Tabla</h2>
+        <p>{model.rangeLabel}</p>
+      </div>
+
+      <MobileResolutionControl ariaLabel="Resolucion de tabla" onChange={onResolutionChange} value={resolution} />
+
+      <div className="mobile-date-strip" role="list">
+        {dates.map((date) => {
+          const closingValue = closingRow?.values?.[date.key] ?? 0;
+
+          return (
+            <button
+              className={date.key === selectedDate.key ? "mobile-date-chip is-active" : "mobile-date-chip"}
+              key={date.key}
+              onClick={() => onSelectedDateChange(date.key)}
+              type="button"
+            >
+              <span>{date.key === model.todayKey ? "Actual" : date.shortLabel}</span>
+              <strong>{formatCompactCurrency(closingValue)}</strong>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mobile-selected-period">
+        <span>{selectedDate.fullLabel ?? formatDateLabel(selectedDate.key)}</span>
+      </div>
+
+      <div className="mobile-metric-grid">
+        {metricItems.map((item) => (
+          <div className={`mobile-metric ${item.toneClass}`} key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
+      </div>
+
+      <div className="mobile-list-heading">
+        <h3>Consolidado</h3>
+      </div>
+
+      <div className="mobile-cashflow-list">
+        {summaryRows.map((row) => (
+          <MobileCashflowRow key={row.key} row={row} />
+        ))}
+      </div>
+
+      <div className="mobile-list-heading">
+        <h3>Categorias con movimiento</h3>
+      </div>
+
+      {categoryRows.length ? (
+        <div className="mobile-cashflow-list">
+          {categoryRows.map((row) => (
+            <MobileCashflowRow key={row.key} row={row} />
+          ))}
+        </div>
+      ) : (
+        <p className="mobile-empty-copy">Sin categorias con movimiento.</p>
+      )}
+    </section>
+  );
+}
+
+function MobileCashflowRow({ row }) {
+  const visibleLines = row.lines.slice(0, 8);
+  const hiddenLineCount = Math.max(0, row.lines.length - visibleLines.length);
+
+  return (
+    <details className={`mobile-cashflow-row ${row.toneClass}`}>
+      <summary>
+        <span className="mobile-row-title">{row.label}</span>
+        <span className="mobile-row-amount">{formatCashflowAmount(row.value)}</span>
+      </summary>
+
+      <div className="mobile-row-details">
+        {visibleLines.map((line, index) => (
+          <p key={`${row.key}-${index}`}>{line}</p>
+        ))}
+        {hiddenLineCount ? <p>Y {hiddenLineCount} movimientos mas.</p> : null}
+      </div>
+    </details>
+  );
+}
+
+function MobileBalancePanel({ model, onResolutionChange, resolution, todayKey }) {
+  const summaryItems = useMemo(() => buildMobileBalanceSummaryItems(model, todayKey), [model, todayKey]);
+
+  return (
+    <section className="mobile-section">
+      <div className="mobile-section-heading">
+        <h2>Grafico</h2>
+        <p>{model.rangeLabel}</p>
+      </div>
+
+      <MobileResolutionControl ariaLabel="Resolucion de grafico" onChange={onResolutionChange} value={resolution} />
+
+      {model.dailyPoints.length ? (
+        <>
+          <div className="mobile-chart-frame">
+            <MobileBalanceTrendChart model={model} resolution={resolution} todayKey={todayKey} />
+          </div>
+
+          <div className="mobile-metric-grid">
+            {summaryItems.map((item) => (
+              <div className={`mobile-metric ${item.toneClass}`} key={item.label}>
+                <span>{item.label}</span>
+                <strong>{item.value}</strong>
+                <em>{item.note}</em>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <p className="mobile-empty-copy">No hay datos suficientes para construir la serie.</p>
+      )}
+    </section>
+  );
+}
+
+function MobileBalanceTrendChart({ model, resolution, todayKey }) {
+  const points = model?.dailyPoints ?? [];
+  const axisTicks = useMemo(() => buildMobileBalanceTrendTicks(points, resolution), [points, resolution]);
+  const xTickFormatter = useMemo(() => (value) => formatBalanceTrendTick(value, resolution), [resolution]);
+  const yAxisTicks = useMemo(() => buildMobileYAxisTicks(model?.yDomain), [model?.yDomain]);
+  const hatchId = useId().replace(/:/g, "");
+  const hasNegativeZone = Array.isArray(model?.yDomain) && Number(model.yDomain[0]) <= 0;
+  const negativeZoneFloor = hasNegativeZone ? Math.min(Number(model.yDomain[0]), 0) : null;
+
+  if (!points.length) return null;
+
+  return (
+    <ResponsiveContainer height="100%" width="100%">
+      <LineChart data={points} margin={{ top: 14, right: 8, left: -8, bottom: 2 }}>
+        {hasNegativeZone && negativeZoneFloor != null ? (
+          <>
+            <defs>
+              <pattern height="8" id={hatchId} patternTransform="rotate(45)" patternUnits="userSpaceOnUse" width="8">
+                <rect fill="rgba(220, 38, 38, 0.1)" height="8" width="8" x="0" y="0" />
+                <line stroke="rgba(220, 38, 38, 0.42)" strokeWidth="3" x1="0" x2="0" y1="0" y2="8" />
+              </pattern>
+            </defs>
+            <ReferenceArea fill={`url(#${hatchId})`} ifOverflow="extendDomain" y1={negativeZoneFloor} y2={0} />
+          </>
+        ) : null}
+        <CartesianGrid stroke="rgba(75, 85, 99, 0.16)" strokeDasharray="3 3" />
+        <XAxis
+          dataKey="date"
+          height={34}
+          interval={0}
+          minTickGap={8}
+          tick={{ fill: "#58616f", fontSize: 10 }}
+          tickFormatter={xTickFormatter}
+          ticks={axisTicks}
+        />
+        <YAxis
+          domain={model.yDomain}
+          tick={{ fill: "#58616f", fontSize: 10 }}
+          tickFormatter={formatCompactCurrency}
+          ticks={yAxisTicks}
+          width={54}
+        />
+        <Tooltip content={<BalanceChartTooltip />} />
+        {points.some((point) => point.date === todayKey) ? (
+          <ReferenceLine stroke="#0f766e" strokeDasharray="4 4" x={todayKey} />
+        ) : null}
+        <Line
+          activeDot={{ r: 4 }}
+          dataKey="estimatedBalance"
+          dot={false}
+          isAnimationActive={false}
+          name="Saldo real conciliado"
+          stroke="#111827"
+          strokeWidth={3}
+          type="linear"
+        />
+      </LineChart>
+    </ResponsiveContainer>
+  );
+}
+
+function useMobilePortraitViewport() {
+  const [isMobilePortraitViewport, setIsMobilePortraitViewport] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") {
+      return;
+    }
+
+    const mediaQueries = [
+      window.matchMedia("(max-width: 640px) and (orientation: portrait) and (pointer: coarse)"),
+      window.matchMedia("(max-width: 480px) and (orientation: portrait)"),
+    ];
+    const updateViewportState = () => {
+      setIsMobilePortraitViewport(mediaQueries.some((query) => query.matches));
+    };
+
+    updateViewportState();
+    mediaQueries.forEach((query) => {
+      if (typeof query.addEventListener === "function") {
+        query.addEventListener("change", updateViewportState);
+      } else {
+        query.addListener(updateViewportState);
+      }
+    });
+    window.addEventListener("resize", updateViewportState);
+
+    return () => {
+      mediaQueries.forEach((query) => {
+        if (typeof query.removeEventListener === "function") {
+          query.removeEventListener("change", updateViewportState);
+        } else {
+          query.removeListener(updateViewportState);
+        }
+      });
+      window.removeEventListener("resize", updateViewportState);
+    };
+  }, []);
+
+  return isMobilePortraitViewport;
+}
+
+const mobileSummaryRowKeys = new Set([
+  "openingBalance",
+  "incomeNet",
+  "fixedTotal",
+  "variableTotal",
+  "netFlow",
+  "reconciliation",
+  "closingBalance",
+]);
+
+function resolveDefaultMobileCashflowDateKey(model) {
+  if (!model?.dates?.length) return "";
+  return model.dates.find((date) => date.key === model.todayKey)?.key ?? model.dates[0]?.key ?? "";
+}
+
+function buildMobileCashflowRows(model, dateKey) {
+  if (!model?.rows?.length || !dateKey) return [];
+
+  return model.rows.map((row) => {
+    const value = Number(row.values?.[dateKey]) || 0;
+    const details = row.details?.[dateKey] ?? buildEmptyCashflowDetails(row.label, dateKey);
+
+    return {
+      key: row.key,
+      label: row.label,
+      lines: details.lines ?? [],
+      isSummary: mobileSummaryRowKeys.has(row.key),
+      toneClass: getMobileMoneyToneClass(row.key, value),
+      value,
+    };
+  });
+}
+
+function buildMobileCashflowMetricItems(rows) {
+  const rowByKey = Object.fromEntries(rows.map((row) => [row.key, row]));
+  const totalExpenses = (rowByKey.fixedTotal?.value ?? 0) + (rowByKey.variableTotal?.value ?? 0);
+
+  return [
+    {
+      label: "Saldo final",
+      toneClass: getMobileMoneyToneClass("closingBalance", rowByKey.closingBalance?.value ?? 0),
+      value: formatCashflowAmount(rowByKey.closingBalance?.value ?? 0),
+    },
+    {
+      label: "Flujo neto",
+      toneClass: getMobileMoneyToneClass("netFlow", rowByKey.netFlow?.value ?? 0),
+      value: formatCashflowAmount(rowByKey.netFlow?.value ?? 0),
+    },
+    {
+      label: "Ingresos",
+      toneClass: getMobileMoneyToneClass("incomeNet", rowByKey.incomeNet?.value ?? 0),
+      value: formatCashflowAmount(rowByKey.incomeNet?.value ?? 0),
+    },
+    {
+      label: "Gastos",
+      toneClass: getMobileMoneyToneClass("expenseTotal", totalExpenses),
+      value: formatCashflowAmount(totalExpenses),
+    },
+  ];
+}
+
+function buildMobileBalanceSummaryItems(model, todayKey) {
+  const points = model?.dailyPoints ?? [];
+  if (!points.length) return [];
+
+  const todayPoint = points.find((point) => point.date === todayKey);
+  const referencePoint =
+    todayPoint ??
+    [...points].reverse().find((point) => point.date <= todayKey) ??
+    points[points.length - 1];
+  const minPoint = points.reduce((currentMin, point) =>
+    Number(point.estimatedBalance) < Number(currentMin.estimatedBalance) ? point : currentMin,
+  points[0]);
+  const maxPoint = points.reduce((currentMax, point) =>
+    Number(point.estimatedBalance) > Number(currentMax.estimatedBalance) ? point : currentMax,
+  points[0]);
+  const observedCount = points.filter((point) => point.hasObservedSnapshot).length;
+
+  return [
+    {
+      label: todayPoint ? "Saldo hoy" : "Saldo ref.",
+      note: formatDateLabel(referencePoint.date),
+      toneClass: getMobileMoneyToneClass("closingBalance", referencePoint.estimatedBalance),
+      value: money(referencePoint.estimatedBalance, "USD"),
+    },
+    {
+      label: "Minimo",
+      note: formatDateLabel(minPoint.date),
+      toneClass: getMobileMoneyToneClass("closingBalance", minPoint.estimatedBalance),
+      value: money(minPoint.estimatedBalance, "USD"),
+    },
+    {
+      label: "Maximo",
+      note: formatDateLabel(maxPoint.date),
+      toneClass: getMobileMoneyToneClass("closingBalance", maxPoint.estimatedBalance),
+      value: money(maxPoint.estimatedBalance, "USD"),
+    },
+    {
+      label: "Saldos reales",
+      note: "conciliados",
+      toneClass: "is-neutral",
+      value: String(observedCount),
+    },
+  ];
+}
+
+function buildMobileBalanceTrendTicks(points, resolution) {
+  if (!points.length) return [];
+
+  if (resolution !== "daily") {
+    return buildBalanceTrendTicks(points, resolution);
+  }
+
+  const ticks = [];
+  const lastIndex = points.length - 1;
+
+  points.forEach((point, index) => {
+    const date = parseDateKey(point.date);
+    const isEdge = index === 0 || index === lastIndex;
+    const isMonthStart = isValidDate(date) && date.getDate() === 1;
+
+    if (isEdge || isMonthStart) {
+      ticks.push(point.date);
+    }
+  });
+
+  return ticks;
+}
+
+function buildMobileYAxisTicks(yDomain) {
+  if (!Array.isArray(yDomain)) return [];
+
+  const lowerBound = Number(yDomain[0]);
+  const upperBound = Number(yDomain[1]);
+
+  if (!Number.isFinite(lowerBound) || !Number.isFinite(upperBound)) {
+    return [];
+  }
+
+  const tickStart = Math.floor(lowerBound / 1000) * 1000;
+  const tickEnd = Math.ceil(upperBound / 1000) * 1000;
+  const ticks = [];
+
+  for (let value = tickStart; value <= tickEnd; value += 1000) {
+    ticks.push(value);
+  }
+
+  return ticks;
+}
+
+function getMobileMoneyToneClass(rowKey, value) {
+  if (rowKey === "closingBalance") {
+    if (value >= 1000) return "is-positive";
+    if (value >= 1) return "is-warning";
+    return "is-negative";
+  }
+
+  if (value > 0) return "is-positive";
+  if (value < 0) return "is-negative";
+  return "is-neutral";
 }
 
 function createInitialUserData(user, snapshotDate) {
