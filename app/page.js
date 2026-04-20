@@ -3109,7 +3109,7 @@ export default function HomePage() {
               <section className="panel-card panel-frame chart-panel">
                 <div className="chart-toolbar">
                   <div className="panel-heading">
-                    <h2>Saldos diarios</h2>
+                    <h2>Saldos conciliados</h2>
                     <p>{balanceTrendModel.rangeLabel}</p>
                   </div>
 
@@ -3139,7 +3139,7 @@ export default function HomePage() {
                       <span><i className="legend-swatch actual-balance" /> Saldo real conciliado</span>
                     </div>
                     <p className="chart-reconciliation-note">
-                      Este grafico refleja solo el flujo real conciliado y marca los dias donde ya registraste un saldo observado.
+                      Este grafico refleja el flujo real conciliado y el popup detalla los movimientos que cambiaron cada punto.
                     </p>
                     <p className="chart-scroll-copy">{getBalanceTrendScrollCopy(balanceTrendResolution)}</p>
                     <BalanceTrendChart model={balanceTrendModel} resolution={balanceTrendResolution} todayKey={todayKey} />
@@ -3202,11 +3202,12 @@ function WingedMoneyIcon() {
 }
 
 function BalanceTrendChart({ model, resolution, todayKey }) {
-  if (!model?.dailyPoints?.length) return null;
-
-  const axisTicks = useMemo(() => buildBalanceTrendTicks(model.dailyPoints, resolution), [model.dailyPoints, resolution]);
-  const width = useMemo(() => resolveBalanceTrendChartWidth(model.dailyPoints.length, resolution), [model.dailyPoints.length, resolution]);
-  const xTickFormatter = useMemo(() => (value) => formatBalanceTrendTick(value, resolution), [resolution]);
+  const points = useMemo(() => getBalanceTrendPoints(model, resolution), [model, resolution]);
+  const axisTicks = useMemo(() => buildBalanceTrendTicks(points, resolution), [points, resolution]);
+  const axisLabelByKey = useMemo(() => buildBalanceTrendAxisLabelMap(points), [points]);
+  const todayReferenceKey = useMemo(() => resolveBalanceTrendTodayReferenceKey(points, todayKey), [points, todayKey]);
+  const width = useMemo(() => resolveBalanceTrendChartWidth(points.length, resolution), [points.length, resolution]);
+  const xTickFormatter = useMemo(() => (value) => axisLabelByKey.get(value) ?? String(value ?? ""), [axisLabelByKey]);
   const minTickGap = resolution === "monthly" ? 10 : resolution === "weekly" ? 20 : 28;
   const hatchId = useId().replace(/:/g, "");
   const hasNegativeZone = Array.isArray(model.yDomain) && Number(model.yDomain[0]) <= 0;
@@ -3235,6 +3236,8 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
     return yAxisTicks.filter((value) => value > 0);
   }, [yAxisTicks]);
 
+  if (!points.length) return null;
+
   function renderNegativeBalanceZone() {
     if (!hasNegativeZone || negativeZoneFloor == null) return null;
 
@@ -3255,7 +3258,7 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
     <div className="chart-sync-shell">
       <div className="chart-axis-pane">
         <ResponsiveContainer height="100%" width="100%">
-          <LineChart data={model.dailyPoints} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
+          <LineChart data={points} margin={{ top: 16, right: 8, left: 0, bottom: 8 }}>
             {renderNegativeBalanceZone()}
             <YAxis
               domain={model.yDomain}
@@ -3272,11 +3275,11 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
       <div className="chart-plot-scroll">
         <div className="chart-scroll-content chart-scroll-content-linear" style={{ width: `${width}px`, height: "360px" }}>
           <ResponsiveContainer height="100%" width="100%">
-            <LineChart data={model.dailyPoints} margin={{ top: 16, right: 20, left: 0, bottom: 8 }}>
+            <LineChart data={points} margin={{ top: 16, right: 20, left: 0, bottom: 8 }}>
             {renderNegativeBalanceZone()}
             <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" />
             <XAxis
-              dataKey="date"
+              dataKey="key"
               interval={resolution === "daily" ? "preserveStartEnd" : 0}
               minTickGap={minTickGap}
               tick={{ fill: "#5a6f88", fontSize: 11 }}
@@ -3284,12 +3287,12 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               ticks={resolution === "daily" ? undefined : axisTicks}
             />
             <YAxis domain={model.yDomain} hide ticks={yAxisTicks} />
-            <Tooltip content={<BalanceChartTooltip />} />
+            <Tooltip content={<BalanceChartTooltip resolution={resolution} />} />
             {positiveGuideValues.map((value) => (
               <ReferenceLine key={`positive-guide-${value}`} stroke="rgba(34, 197, 94, 0.22)" strokeDasharray="2 6" y={value} />
             ))}
-            {model.dailyPoints.some((point) => point.date === todayKey) ? (
-              <ReferenceLine label={{ fill: "#163e68", fontSize: 11, value: "Hoy" }} stroke="#163e68" strokeDasharray="4 4" x={todayKey} />
+            {todayReferenceKey ? (
+              <ReferenceLine label={{ fill: "#163e68", fontSize: 11, value: "Hoy" }} stroke="#163e68" strokeDasharray="4 4" x={todayReferenceKey} />
             ) : null}
             <Line
               activeDot={{ r: 4 }}
@@ -3308,17 +3311,41 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
   );
 }
 
-function BalanceChartTooltip({ active, payload, label }) {
+function BalanceChartTooltip({ active, payload }) {
   if (!active || !payload?.length) return null;
 
-  const estimated = payload.find((entry) => entry.dataKey === "estimatedBalance")?.value ?? 0;
-  const observed = payload[0]?.payload?.observedBalance ?? null;
+  const point = payload[0]?.payload ?? {};
+  const estimated = payload.find((entry) => entry.dataKey === "estimatedBalance")?.value ?? point.estimatedBalance ?? 0;
+  const observed = point.observedBalance ?? null;
+  const movementLines = point.movementLines ?? [];
+  const hiddenMovementCount = Number(point.hiddenMovementCount) || 0;
+  const comparisonLabel = point.previousTitle ? `Cambio desde ${point.previousTitle}` : "Cambio del periodo";
 
   return (
     <div className="chart-tooltip">
-      <strong>{formatDateLabel(label)}</strong>
+      <strong>{point.tooltipTitle ?? formatDateLabel(point.date)}</strong>
       <p>Saldo real conciliado: {money(estimated, "USD")}</p>
+      <p>{comparisonLabel}: {formatCashflowAmount(point.balanceDelta ?? 0)}</p>
+      <p>Flujo neto: {formatCashflowAmount(point.netFlow ?? 0)}</p>
+      {Number(point.adjustment ?? 0) ? <p>Cuadre: {formatCashflowAmount(point.adjustment)}</p> : null}
       {observed != null ? <p>Saldo observado registrado: {money(observed, "USD")}</p> : null}
+      {observed == null && Number(point.observedSnapshotCount) > 0 ? (
+        <p>Saldos observados en el periodo: {point.observedSnapshotCount}</p>
+      ) : null}
+
+      <div className="chart-tooltip-section">
+        <span>Movimientos que explican el cambio</span>
+        {movementLines.length ? (
+          <ul className="chart-tooltip-list">
+            {movementLines.map((line, index) => (
+              <li key={`${point.key}-movement-${index}`}>{line}</li>
+            ))}
+            {hiddenMovementCount > 0 ? <li>...y {hiddenMovementCount} movimientos mas.</li> : null}
+          </ul>
+        ) : (
+          <p className="chart-tooltip-muted">Sin movimientos entre ambos puntos.</p>
+        )}
+      </div>
     </div>
   );
 }
@@ -3548,7 +3575,7 @@ function MobileCashflowRow({ row }) {
 }
 
 function MobileBalancePanel({ model, onResolutionChange, resolution, todayKey }) {
-  const summaryItems = useMemo(() => buildMobileBalanceSummaryItems(model, todayKey), [model, todayKey]);
+  const summaryItems = useMemo(() => buildMobileBalanceSummaryItems(model, todayKey, resolution), [model, resolution, todayKey]);
 
   return (
     <section className="mobile-section">
@@ -3583,9 +3610,11 @@ function MobileBalancePanel({ model, onResolutionChange, resolution, todayKey })
 }
 
 function MobileBalanceTrendChart({ model, resolution, todayKey }) {
-  const points = model?.dailyPoints ?? [];
+  const points = useMemo(() => getBalanceTrendPoints(model, resolution), [model, resolution]);
   const axisTicks = useMemo(() => buildMobileBalanceTrendTicks(points, resolution), [points, resolution]);
-  const xTickFormatter = useMemo(() => (value) => formatBalanceTrendTick(value, resolution), [resolution]);
+  const axisLabelByKey = useMemo(() => buildBalanceTrendAxisLabelMap(points), [points]);
+  const todayReferenceKey = useMemo(() => resolveBalanceTrendTodayReferenceKey(points, todayKey), [points, todayKey]);
+  const xTickFormatter = useMemo(() => (value) => axisLabelByKey.get(value) ?? String(value ?? ""), [axisLabelByKey]);
   const yAxisTicks = useMemo(() => buildMobileYAxisTicks(model?.yDomain), [model?.yDomain]);
   const hatchId = useId().replace(/:/g, "");
   const hasNegativeZone = Array.isArray(model?.yDomain) && Number(model.yDomain[0]) <= 0;
@@ -3609,7 +3638,7 @@ function MobileBalanceTrendChart({ model, resolution, todayKey }) {
         ) : null}
         <CartesianGrid stroke="rgba(75, 85, 99, 0.16)" strokeDasharray="3 3" />
         <XAxis
-          dataKey="date"
+          dataKey="key"
           height={34}
           interval={0}
           minTickGap={8}
@@ -3624,9 +3653,9 @@ function MobileBalanceTrendChart({ model, resolution, todayKey }) {
           ticks={yAxisTicks}
           width={54}
         />
-        <Tooltip content={<BalanceChartTooltip />} />
-        {points.some((point) => point.date === todayKey) ? (
-          <ReferenceLine stroke="#0f766e" strokeDasharray="4 4" x={todayKey} />
+        <Tooltip content={<BalanceChartTooltip resolution={resolution} />} />
+        {todayReferenceKey ? (
+          <ReferenceLine stroke="#0f766e" strokeDasharray="4 4" x={todayReferenceKey} />
         ) : null}
         <Line
           activeDot={{ r: 4 }}
@@ -3745,14 +3774,14 @@ function buildMobileCashflowMetricItems(rows) {
   ];
 }
 
-function buildMobileBalanceSummaryItems(model, todayKey) {
-  const points = model?.dailyPoints ?? [];
+function buildMobileBalanceSummaryItems(model, todayKey, resolution = "daily") {
+  const points = getBalanceTrendPoints(model, resolution);
   if (!points.length) return [];
 
-  const todayPoint = points.find((point) => point.date === todayKey);
+  const todayPoint = findBalanceTrendPointForDate(points, todayKey);
   const referencePoint =
     todayPoint ??
-    [...points].reverse().find((point) => point.date <= todayKey) ??
+    [...points].reverse().find((point) => (point.endKey ?? point.date) <= todayKey) ??
     points[points.length - 1];
   const minPoint = points.reduce((currentMin, point) =>
     Number(point.estimatedBalance) < Number(currentMin.estimatedBalance) ? point : currentMin,
@@ -3760,24 +3789,28 @@ function buildMobileBalanceSummaryItems(model, todayKey) {
   const maxPoint = points.reduce((currentMax, point) =>
     Number(point.estimatedBalance) > Number(currentMax.estimatedBalance) ? point : currentMax,
   points[0]);
-  const observedCount = points.filter((point) => point.hasObservedSnapshot).length;
+  const observedCount = points.reduce((sum, point) => sum + (Number(point.observedSnapshotCount) || 0), 0);
+  const referenceLabel =
+    resolution === "weekly" ? (todayPoint ? "Semana actual" : "Semana ref.") :
+    resolution === "monthly" ? (todayPoint ? "Mes actual" : "Mes ref.") :
+    todayPoint ? "Saldo hoy" : "Saldo ref.";
 
   return [
     {
-      label: todayPoint ? "Saldo hoy" : "Saldo ref.",
-      note: formatDateLabel(referencePoint.date),
+      label: referenceLabel,
+      note: referencePoint.tooltipTitle ?? formatDateLabel(referencePoint.date),
       toneClass: getMobileMoneyToneClass("closingBalance", referencePoint.estimatedBalance),
       value: money(referencePoint.estimatedBalance, "USD"),
     },
     {
       label: "Minimo",
-      note: formatDateLabel(minPoint.date),
+      note: minPoint.tooltipTitle ?? formatDateLabel(minPoint.date),
       toneClass: getMobileMoneyToneClass("closingBalance", minPoint.estimatedBalance),
       value: money(minPoint.estimatedBalance, "USD"),
     },
     {
       label: "Maximo",
-      note: formatDateLabel(maxPoint.date),
+      note: maxPoint.tooltipTitle ?? formatDateLabel(maxPoint.date),
       toneClass: getMobileMoneyToneClass("closingBalance", maxPoint.estimatedBalance),
       value: money(maxPoint.estimatedBalance, "USD"),
     },
@@ -3806,7 +3839,7 @@ function buildMobileBalanceTrendTicks(points, resolution) {
     const isMonthStart = isValidDate(date) && date.getDate() === 1;
 
     if (isEdge || isMonthStart) {
-      ticks.push(point.date);
+      ticks.push(point.key);
     }
   });
 
@@ -5148,28 +5181,150 @@ function buildBalanceTrendModel({ expenses, incomes, adjustments, balanceSnapsho
   const observedBalanceByDate = Object.fromEntries(
     (balanceSnapshots ?? []).map((snapshot) => [snapshot.date, calculateBalanceSnapshotObservedTotal(snapshot)]),
   );
-  const estimatedModel = buildCashflowModel({
+  const cashflowModel = buildCashflowModel({
     expenses,
     incomes,
     adjustments,
     currentDateKey,
     analysisSettings: chartRange,
   });
-  const estimatedRow = estimatedModel.rows.find((row) => row.key === "closingBalance");
-  const dailyPoints = estimatedModel.dates.map((date) => ({
-    key: date.key,
-    date: date.key,
-    shortLabel: date.shortLabel,
-    estimatedBalance: estimatedRow?.values?.[date.key] ?? 0,
-    hasObservedSnapshot: date.key in observedBalanceByDate,
-    observedBalance: observedBalanceByDate[date.key] ?? null,
-  }));
+  const dailyPoints = buildBalanceTrendPointsFromCashflowModel(cashflowModel, observedBalanceByDate, "daily");
+  const weeklyPoints = buildBalanceTrendPointsFromCashflowModel(
+    buildCashflowResolutionModel(cashflowModel, "weekly"),
+    observedBalanceByDate,
+    "weekly",
+  );
+  const monthlyPoints = buildBalanceTrendPointsFromCashflowModel(
+    buildCashflowResolutionModel(cashflowModel, "monthly"),
+    observedBalanceByDate,
+    "monthly",
+  );
 
   return {
     dailyPoints,
+    pointsByResolution: {
+      daily: dailyPoints,
+      weekly: weeklyPoints,
+      monthly: monthlyPoints,
+    },
     yDomain: resolveBalanceChartDomain(dailyPoints),
     rangeLabel: `${formatMonthLabel(chartRange.chartStartMonth)} - ${formatMonthLabel(chartRange.chartEndMonth)}`,
   };
+}
+
+function buildBalanceTrendPointsFromCashflowModel(cashflowModel, observedBalanceByDate, resolution) {
+  if (!cashflowModel?.dates?.length || !cashflowModel?.rows?.length) return [];
+
+  const rowsByKey = Object.fromEntries(cashflowModel.rows.map((row) => [row.key, row]));
+  const points = [];
+
+  for (const date of cashflowModel.dates) {
+    const periodKey = date.key;
+    const startKey = date.startKey ?? date.key;
+    const endKey = date.endKey ?? date.key;
+    const opening = Number(rowsByKey.openingBalance?.values?.[periodKey]) || 0;
+    const estimatedBalance = Number(rowsByKey.closingBalance?.values?.[periodKey]) || 0;
+    const previousPoint = points[points.length - 1] ?? null;
+    const previousBalance = previousPoint ? Number(previousPoint.estimatedBalance) || 0 : opening;
+    const netFlow = Number(rowsByKey.netFlow?.values?.[periodKey]) || 0;
+    const adjustment = Number(rowsByKey.reconciliation?.values?.[periodKey]) || 0;
+    const observedRecords = getBalanceTrendObservedRecords(observedBalanceByDate, startKey, endKey);
+    const movementSummary = buildBalanceTrendMovementSummary(rowsByKey, periodKey);
+    const tooltipTitle = getBalanceTrendPointTitle(date, resolution, startKey, endKey);
+
+    points.push({
+      key: periodKey,
+      date: endKey,
+      startKey,
+      endKey,
+      axisLabel: getBalanceTrendAxisLabel(date, resolution, startKey),
+      balanceDelta: roundCurrencyValue(estimatedBalance - previousBalance),
+      estimatedBalance,
+      hasObservedSnapshot: observedRecords.length > 0,
+      hiddenMovementCount: movementSummary.hiddenCount,
+      movementLines: movementSummary.lines,
+      netFlow: roundCurrencyValue(netFlow),
+      adjustment: roundCurrencyValue(adjustment),
+      observedBalance: observedRecords.length === 1 ? observedRecords[0].balance : null,
+      observedSnapshotCount: observedRecords.length,
+      previousBalance,
+      previousTitle: previousPoint?.tooltipTitle ?? "saldo inicial",
+      shortLabel: date.shortLabel,
+      tooltipTitle,
+    });
+  }
+
+  return points;
+}
+
+function getBalanceTrendPoints(model, resolution = "daily") {
+  return model?.pointsByResolution?.[resolution] ?? model?.dailyPoints ?? [];
+}
+
+function getBalanceTrendObservedRecords(observedBalanceByDate, startKey, endKey) {
+  return Object.entries(observedBalanceByDate ?? {})
+    .filter(([date]) => date >= startKey && date <= endKey)
+    .sort(([leftDate], [rightDate]) => compareSortValues(leftDate, rightDate, "asc"))
+    .map(([date, balance]) => ({
+      date,
+      balance,
+    }));
+}
+
+function buildBalanceTrendMovementSummary(rowsByKey, periodKey) {
+  const lines = [
+    ...(rowsByKey.netFlow?.details?.[periodKey]?.lines ?? []),
+    ...(rowsByKey.reconciliation?.details?.[periodKey]?.lines ?? []),
+  ].filter((line) => line && !isGenericCashflowLine(line));
+  const visibleLimit = 12;
+
+  return {
+    lines: lines.slice(0, visibleLimit),
+    hiddenCount: Math.max(0, lines.length - visibleLimit),
+  };
+}
+
+function getBalanceTrendPointTitle(date, resolution, startKey, endKey) {
+  if (resolution === "daily") {
+    return date.fullLabel ?? formatDateLabel(date.key);
+  }
+
+  if (resolution === "monthly") {
+    return date.fullLabel ?? formatMonthLabel(date.key);
+  }
+
+  return date.fullLabel ?? `${formatDateLabel(startKey)} - ${formatDateLabel(endKey)}`;
+}
+
+function getBalanceTrendAxisLabel(date, resolution, startKey) {
+  if (resolution === "monthly") {
+    return formatMonthLabel(date.key);
+  }
+
+  if (resolution === "weekly") {
+    const parsedStart = parseDateKey(startKey);
+    return isValidDate(parsedStart) ? formatDateValue(parsedStart, "MM/dd") : date.shortLabel ?? startKey;
+  }
+
+  return formatBalanceTrendTick(date.key, resolution);
+}
+
+function buildBalanceTrendAxisLabelMap(points) {
+  return new Map((points ?? []).map((point) => [point.key, point.axisLabel ?? formatBalanceTrendTick(point.date)]));
+}
+
+function resolveBalanceTrendTodayReferenceKey(points, todayKey) {
+  return findBalanceTrendPointForDate(points, todayKey)?.key ?? "";
+}
+
+function findBalanceTrendPointForDate(points, dateKey) {
+  if (!dateKey) return null;
+
+  return (points ?? []).find((point) => {
+    const startKey = point.startKey ?? point.date;
+    const endKey = point.endKey ?? point.date;
+    return startKey <= dateKey && endKey >= dateKey;
+  }) ?? null;
 }
 
 function buildBalanceSnapshotOverviewModel({ expenses, incomes, adjustments, balanceSnapshots, analysisSettings, currentForm, editingSnapshotId }) {
@@ -5545,7 +5700,12 @@ function buildCashflowResolutionModel(baseModel, resolution) {
 
   return {
     ...baseModel,
-    dates: periods.map(({ dateKeys, endKey, startKey, ...date }) => date),
+    dates: periods.map(({ dateKeys, endKey, startKey, ...date }) => ({
+      ...date,
+      dateKeys,
+      endKey,
+      startKey,
+    })),
     rows,
     todayKey: todayPeriod?.key ?? baseModel.todayKey,
     rangeLabel: formatCashflowRangeLabel(periods, resolution),
@@ -6057,37 +6217,18 @@ function formatDateLabel(value) {
 function buildBalanceTrendTicks(points, resolution) {
   if (!points?.length || resolution === "daily") return [];
 
-  const availableDates = new Set(points.map((point) => point.date));
-  const ticks = [];
-  let previousPeriodKey = "";
-
-  for (const point of points) {
-    const descriptor = getCashflowPeriodDescriptor(point.date, resolution);
-    if (!descriptor) continue;
-
-    if (descriptor.key !== previousPeriodKey) {
-      const referenceDate =
-        resolution === "monthly"
-          ? firstDayOfMonth(descriptor.key)
-          : localDate(getStartOfWeek(parseDateKey(point.date), { weekStartsOn: 1 }));
-
-      ticks.push(availableDates.has(referenceDate) ? referenceDate : point.date);
-      previousPeriodKey = descriptor.key;
-    }
-  }
-
-  return ticks;
+  return points.map((point) => point.key);
 }
 
 function resolveBalanceTrendChartWidth(pointCount, resolution) {
   const safePointCount = Math.max(0, Number(pointCount) || 0);
 
   if (resolution === "monthly") {
-    return Math.max(860, Math.round(safePointCount * 4));
+    return Math.max(860, Math.round(safePointCount * 78));
   }
 
   if (resolution === "weekly") {
-    return Math.max(900, Math.round(safePointCount * 9));
+    return Math.max(900, Math.round(safePointCount * 62));
   }
 
   return Math.max(960, safePointCount * 18);
@@ -6095,23 +6236,23 @@ function resolveBalanceTrendChartWidth(pointCount, resolution) {
 
 function getBalanceTrendResolutionCopy(resolution) {
   if (resolution === "weekly") {
-    return "El eje X toma los lunes como referencia semanal, pero la curva sigue trazada con todos los dias.";
+    return "Cada punto resume una semana y el popup compara contra la semana anterior.";
   }
 
   if (resolution === "monthly") {
-    return "El eje X marca el dia 1 de cada mes y comprime la vista, manteniendo intacto el detalle diario de la serie.";
+    return "Cada punto resume un mes y el popup compara contra el mes anterior.";
   }
 
-  return "Cada marca del eje X sigue el ritmo diario original del flujo proyectado.";
+  return "Cada punto compara el cierre del dia contra el cierre del dia anterior.";
 }
 
 function getBalanceTrendScrollCopy(resolution) {
   if (resolution === "weekly") {
-    return "Desliza lateralmente para recorrer la serie diaria con referencias semanales en el eje X.";
+    return "Desliza lateralmente para recorrer los cierres semanales del periodo seleccionado.";
   }
 
   if (resolution === "monthly") {
-    return "Desliza lateralmente para recorrer la serie diaria comprimida, con referencias mensuales en el eje X.";
+    return "Desliza lateralmente para recorrer los cierres mensuales del periodo seleccionado.";
   }
 
   return "Desliza lateralmente para recorrer todos los dias del periodo seleccionado.";
