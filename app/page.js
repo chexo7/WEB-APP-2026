@@ -3203,6 +3203,7 @@ function WingedMoneyIcon() {
 
 function BalanceTrendChart({ model, resolution, todayKey }) {
   const chartContentRef = useRef(null);
+  const [activeTooltipPoint, setActiveTooltipPoint] = useState(null);
   const [pinnedTooltip, setPinnedTooltip] = useState(null);
   const points = useMemo(() => getBalanceTrendPoints(model, resolution), [model, resolution]);
   const axisTicks = useMemo(() => buildBalanceTrendTicks(points, resolution), [points, resolution]);
@@ -3239,6 +3240,7 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
   }, [yAxisTicks]);
 
   useEffect(() => {
+    setActiveTooltipPoint(null);
     setPinnedTooltip(null);
   }, [points, resolution]);
 
@@ -3257,8 +3259,7 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
 
   if (!points.length) return null;
 
-  function handleChartClick(chartEvent) {
-    const point = resolveBalanceTooltipPointFromChartEvent(chartEvent);
+  function pinBalanceTooltip(point, event) {
     if (!point?.key) return;
 
     setPinnedTooltip((current) => {
@@ -3268,9 +3269,22 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
 
       return {
         point,
-        position: resolvePinnedBalanceTooltipPosition(chartEvent, chartContentRef.current),
+        position: resolvePinnedBalanceTooltipPosition(event, chartContentRef.current),
       };
     });
+  }
+
+  function handleChartMouseMove(chartEvent) {
+    const point = resolveBalanceTooltipPointFromChartEvent(chartEvent);
+    setActiveTooltipPoint(point?.key ? point : null);
+  }
+
+  function handleChartMouseLeave() {
+    setActiveTooltipPoint(null);
+  }
+
+  function handleChartClick(chartEvent) {
+    pinBalanceTooltip(resolveBalanceTooltipPointFromChartEvent(chartEvent) ?? activeTooltipPoint, chartEvent);
   }
 
   function renderNegativeBalanceZone() {
@@ -3310,7 +3324,13 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
       <div className="chart-plot-scroll">
         <div className="chart-scroll-content chart-scroll-content-linear" ref={chartContentRef} style={{ width: `${width}px`, height: "360px" }}>
           <ResponsiveContainer height="100%" width="100%">
-            <LineChart data={points} margin={{ top: 16, right: 20, left: 0, bottom: 8 }} onClick={handleChartClick}>
+            <LineChart
+              data={points}
+              margin={{ top: 16, right: 20, left: 0, bottom: 8 }}
+              onClick={handleChartClick}
+              onMouseLeave={handleChartMouseLeave}
+              onMouseMove={handleChartMouseMove}
+            >
             {renderNegativeBalanceZone()}
             <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" />
             <XAxis
@@ -3341,6 +3361,21 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               strokeWidth={3}
               type="linear"
             />
+            <Line
+              activeDot={false}
+              dataKey="estimatedBalance"
+              dot={(dotProps) => (
+                <BalancePinDot
+                  {...dotProps}
+                  onPin={(point, event) => pinBalanceTooltip(point, event)}
+                />
+              )}
+              isAnimationActive={false}
+              legendType="none"
+              stroke="transparent"
+              strokeWidth={0}
+              type="linear"
+            />
             </LineChart>
           </ResponsiveContainer>
         </div>
@@ -3351,6 +3386,27 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
         position={pinnedTooltip?.position}
       />
     </div>
+  );
+}
+
+function BalancePinDot({ cx, cy, onPin, payload }) {
+  if (!Number.isFinite(Number(cx)) || !Number.isFinite(Number(cy)) || !payload?.key) {
+    return null;
+  }
+
+  return (
+    <circle
+      cx={cx}
+      cy={cy}
+      fill="transparent"
+      onClick={(event) => {
+        event.stopPropagation();
+        onPin(payload, event);
+      }}
+      r={10}
+      role="presentation"
+      style={{ cursor: "pointer", pointerEvents: "all" }}
+    />
   );
 }
 
@@ -3779,6 +3835,7 @@ function MobileBalancePanel({ model, onResolutionChange, resolution, todayKey })
 
 function MobileBalanceTrendChart({ model, resolution, todayKey }) {
   const chartContentRef = useRef(null);
+  const [activeTooltipPoint, setActiveTooltipPoint] = useState(null);
   const [pinnedTooltip, setPinnedTooltip] = useState(null);
   const points = useMemo(() => getBalanceTrendPoints(model, resolution), [model, resolution]);
   const axisTicks = useMemo(() => buildMobileBalanceTrendTicks(points, resolution), [points, resolution]);
@@ -3791,6 +3848,7 @@ function MobileBalanceTrendChart({ model, resolution, todayKey }) {
   const negativeZoneFloor = hasNegativeZone ? Math.min(Number(model.yDomain[0]), 0) : null;
 
   useEffect(() => {
+    setActiveTooltipPoint(null);
     setPinnedTooltip(null);
   }, [points, resolution]);
 
@@ -3809,8 +3867,7 @@ function MobileBalanceTrendChart({ model, resolution, todayKey }) {
 
   if (!points.length) return null;
 
-  function handleChartClick(chartEvent) {
-    const point = resolveBalanceTooltipPointFromChartEvent(chartEvent);
+  function pinBalanceTooltip(point, event) {
     if (!point?.key) return;
 
     setPinnedTooltip((current) => {
@@ -3820,15 +3877,34 @@ function MobileBalanceTrendChart({ model, resolution, todayKey }) {
 
       return {
         point,
-        position: resolvePinnedBalanceTooltipPosition(chartEvent, chartContentRef.current),
+        position: resolvePinnedBalanceTooltipPosition(event, chartContentRef.current),
       };
     });
+  }
+
+  function handleChartMouseMove(chartEvent) {
+    const point = resolveBalanceTooltipPointFromChartEvent(chartEvent);
+    setActiveTooltipPoint(point?.key ? point : null);
+  }
+
+  function handleChartMouseLeave() {
+    setActiveTooltipPoint(null);
+  }
+
+  function handleChartClick(chartEvent) {
+    pinBalanceTooltip(resolveBalanceTooltipPointFromChartEvent(chartEvent) ?? activeTooltipPoint, chartEvent);
   }
 
   return (
     <div className="mobile-chart-inner" ref={chartContentRef}>
       <ResponsiveContainer height="100%" width="100%">
-        <LineChart data={points} margin={{ top: 14, right: 8, left: -8, bottom: 2 }} onClick={handleChartClick}>
+        <LineChart
+          data={points}
+          margin={{ top: 14, right: 8, left: -8, bottom: 2 }}
+          onClick={handleChartClick}
+          onMouseLeave={handleChartMouseLeave}
+          onMouseMove={handleChartMouseMove}
+        >
           {hasNegativeZone && negativeZoneFloor != null ? (
             <>
               <defs>
@@ -3872,6 +3948,21 @@ function MobileBalanceTrendChart({ model, resolution, todayKey }) {
             name="Saldo real conciliado"
             stroke="#111827"
             strokeWidth={3}
+            type="linear"
+          />
+          <Line
+            activeDot={false}
+            dataKey="estimatedBalance"
+            dot={(dotProps) => (
+              <BalancePinDot
+                {...dotProps}
+                onPin={(point, event) => pinBalanceTooltip(point, event)}
+              />
+            )}
+            isAnimationActive={false}
+            legendType="none"
+            stroke="transparent"
+            strokeWidth={0}
             type="linear"
           />
         </LineChart>
