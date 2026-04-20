@@ -3202,6 +3202,8 @@ function WingedMoneyIcon() {
 }
 
 function BalanceTrendChart({ model, resolution, todayKey }) {
+  const chartContentRef = useRef(null);
+  const [pinnedTooltip, setPinnedTooltip] = useState(null);
   const points = useMemo(() => getBalanceTrendPoints(model, resolution), [model, resolution]);
   const axisTicks = useMemo(() => buildBalanceTrendTicks(points, resolution), [points, resolution]);
   const axisLabelByKey = useMemo(() => buildBalanceTrendAxisLabelMap(points), [points]);
@@ -3236,7 +3238,40 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
     return yAxisTicks.filter((value) => value > 0);
   }, [yAxisTicks]);
 
+  useEffect(() => {
+    setPinnedTooltip(null);
+  }, [points, resolution]);
+
+  useEffect(() => {
+    if (!pinnedTooltip) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setPinnedTooltip(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pinnedTooltip]);
+
   if (!points.length) return null;
+
+  function handleChartClick(chartEvent) {
+    const point = resolveBalanceTooltipPointFromChartEvent(chartEvent);
+    if (!point?.key) return;
+
+    setPinnedTooltip((current) => {
+      if (current?.point?.key === point.key) {
+        return null;
+      }
+
+      return {
+        point,
+        position: resolvePinnedBalanceTooltipPosition(chartEvent, chartContentRef.current),
+      };
+    });
+  }
 
   function renderNegativeBalanceZone() {
     if (!hasNegativeZone || negativeZoneFloor == null) return null;
@@ -3273,9 +3308,9 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
       </div>
 
       <div className="chart-plot-scroll">
-        <div className="chart-scroll-content chart-scroll-content-linear" style={{ width: `${width}px`, height: "360px" }}>
+        <div className="chart-scroll-content chart-scroll-content-linear" ref={chartContentRef} style={{ width: `${width}px`, height: "360px" }}>
           <ResponsiveContainer height="100%" width="100%">
-            <LineChart data={points} margin={{ top: 16, right: 20, left: 0, bottom: 8 }}>
+            <LineChart data={points} margin={{ top: 16, right: 20, left: 0, bottom: 8 }} onClick={handleChartClick}>
             {renderNegativeBalanceZone()}
             <CartesianGrid stroke="rgba(87, 112, 144, 0.16)" strokeDasharray="3 3" />
             <XAxis
@@ -3287,12 +3322,15 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
               ticks={resolution === "daily" ? undefined : axisTicks}
             />
             <YAxis domain={model.yDomain} hide ticks={yAxisTicks} />
-            <Tooltip content={<BalanceChartTooltip resolution={resolution} />} />
+            {pinnedTooltip ? null : <Tooltip content={<BalanceChartTooltip resolution={resolution} />} />}
             {positiveGuideValues.map((value) => (
               <ReferenceLine key={`positive-guide-${value}`} stroke="rgba(34, 197, 94, 0.22)" strokeDasharray="2 6" y={value} />
             ))}
             {todayReferenceKey ? (
               <ReferenceLine label={{ fill: "#163e68", fontSize: 11, value: "Hoy" }} stroke="#163e68" strokeDasharray="4 4" x={todayReferenceKey} />
+            ) : null}
+            {pinnedTooltip?.point?.key ? (
+              <ReferenceLine label={{ fill: "#0f766e", fontSize: 11, value: "Fijado" }} stroke="#0f766e" strokeDasharray="2 5" x={pinnedTooltip.point.key} />
             ) : null}
             <Line
               activeDot={{ r: 4 }}
@@ -3307,11 +3345,16 @@ function BalanceTrendChart({ model, resolution, todayKey }) {
           </ResponsiveContainer>
         </div>
       </div>
+      <BalancePinnedTooltip
+        onClose={() => setPinnedTooltip(null)}
+        point={pinnedTooltip?.point}
+        position={pinnedTooltip?.position}
+      />
     </div>
   );
 }
 
-function BalanceChartTooltip({ active, payload }) {
+function BalanceChartTooltip({ active, isPinned = false, onClose, payload }) {
   if (!active || !payload?.length) return null;
 
   const point = payload[0]?.payload ?? {};
@@ -3323,7 +3366,15 @@ function BalanceChartTooltip({ active, payload }) {
 
   return (
     <div className="chart-tooltip">
-      <strong>{point.tooltipTitle ?? formatDateLabel(point.date)}</strong>
+      <div className="chart-tooltip-header">
+        <strong>{point.tooltipTitle ?? formatDateLabel(point.date)}</strong>
+        {isPinned ? (
+          <button className="chart-tooltip-close" onClick={onClose} type="button">
+            Soltar
+          </button>
+        ) : null}
+      </div>
+      {isPinned ? <p className="chart-tooltip-pin-note">Fijado. Presiona Esc o haz click de nuevo en el punto para soltar.</p> : null}
       <p>Saldo real conciliado: {money(estimated, "USD")}</p>
       <p>{comparisonLabel}: {formatCashflowAmount(point.balanceDelta ?? 0)}</p>
       <p>Flujo neto: {formatCashflowAmount(point.netFlow ?? 0)}</p>
@@ -3348,6 +3399,123 @@ function BalanceChartTooltip({ active, payload }) {
       </div>
     </div>
   );
+}
+
+function BalancePinnedTooltip({ onClose, point, position }) {
+  if (!point || !position) return null;
+
+  return (
+    <Portal>
+      <div
+        className="chart-pinned-tooltip"
+        onWheel={(event) => event.stopPropagation()}
+        style={{ left: `${position.left}px`, top: `${position.top}px` }}
+      >
+        <BalanceChartTooltip
+          active
+          isPinned
+          onClose={onClose}
+          payload={buildBalanceTooltipPayload(point)}
+        />
+      </div>
+    </Portal>
+  );
+}
+
+function buildBalanceTooltipPayload(point) {
+  return [
+    {
+      dataKey: "estimatedBalance",
+      payload: point,
+      value: point?.estimatedBalance ?? 0,
+    },
+  ];
+}
+
+function resolveBalanceTooltipPointFromChartEvent(chartEvent) {
+  const payload =
+    chartEvent?.activePayload ??
+    chartEvent?.tooltipPayload ??
+    chartEvent?.payload ??
+    [];
+  const entries = Array.isArray(payload) ? payload : [payload];
+  const directPoint = entries.find((entry) => entry?.key && entry?.estimatedBalance != null);
+
+  return entries.find((entry) => entry?.dataKey === "estimatedBalance")?.payload ?? entries[0]?.payload ?? directPoint ?? null;
+}
+
+function resolvePinnedBalanceTooltipPosition(chartEvent, containerElement) {
+  const pointerPosition = getClientPositionFromChartEvent(chartEvent);
+  const viewportWidth = typeof window === "undefined" ? 1024 : window.innerWidth;
+  const viewportHeight = typeof window === "undefined" ? 768 : window.innerHeight;
+  const tooltipWidth = Math.min(380, Math.max(260, viewportWidth - 24));
+  const tooltipHeight = Math.min(430, Math.max(260, viewportHeight - 24));
+  const margin = 12;
+  let clientX = pointerPosition?.clientX;
+  let clientY = pointerPosition?.clientY;
+
+  if ((!Number.isFinite(clientX) || !Number.isFinite(clientY)) && containerElement) {
+    const rect = containerElement.getBoundingClientRect();
+    const chartX = Number(chartEvent?.chartX ?? chartEvent?.activeCoordinate?.x);
+    const chartY = Number(chartEvent?.chartY ?? chartEvent?.activeCoordinate?.y);
+
+    if (Number.isFinite(chartX)) {
+      clientX = rect.left + chartX;
+    }
+
+    if (Number.isFinite(chartY)) {
+      clientY = rect.top + chartY;
+    }
+  }
+
+  if (!Number.isFinite(clientX)) {
+    clientX = viewportWidth / 2;
+  }
+
+  if (!Number.isFinite(clientY)) {
+    clientY = viewportHeight / 2;
+  }
+
+  const maxLeft = Math.max(margin, viewportWidth - tooltipWidth - margin);
+  const left = clampNumber(clientX + 14, margin, maxLeft);
+  const preferredTop = clientY + 14;
+  const top =
+    preferredTop + tooltipHeight <= viewportHeight - margin
+      ? preferredTop
+      : Math.max(margin, clientY - tooltipHeight - 14);
+
+  return {
+    left: Math.round(left),
+    top: Math.round(top),
+  };
+}
+
+function getClientPositionFromChartEvent(chartEvent) {
+  const candidates = [
+    chartEvent?.sourceEvent,
+    chartEvent?.event,
+    chartEvent?.nativeEvent,
+    chartEvent?.originalEvent,
+    chartEvent,
+  ];
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+
+    const touch = candidate.changedTouches?.[0] ?? candidate.touches?.[0] ?? null;
+    const clientX = Number(touch?.clientX ?? candidate.clientX);
+    const clientY = Number(touch?.clientY ?? candidate.clientY);
+
+    if (Number.isFinite(clientX) && Number.isFinite(clientY)) {
+      return { clientX, clientY };
+    }
+  }
+
+  return null;
+}
+
+function clampNumber(value, minimum, maximum) {
+  return Math.min(Math.max(Number(value) || 0, minimum), maximum);
 }
 
 function MobileCashflowExperience({
@@ -3610,6 +3778,8 @@ function MobileBalancePanel({ model, onResolutionChange, resolution, todayKey })
 }
 
 function MobileBalanceTrendChart({ model, resolution, todayKey }) {
+  const chartContentRef = useRef(null);
+  const [pinnedTooltip, setPinnedTooltip] = useState(null);
   const points = useMemo(() => getBalanceTrendPoints(model, resolution), [model, resolution]);
   const axisTicks = useMemo(() => buildMobileBalanceTrendTicks(points, resolution), [points, resolution]);
   const axisLabelByKey = useMemo(() => buildBalanceTrendAxisLabelMap(points), [points]);
@@ -3620,55 +3790,98 @@ function MobileBalanceTrendChart({ model, resolution, todayKey }) {
   const hasNegativeZone = Array.isArray(model?.yDomain) && Number(model.yDomain[0]) <= 0;
   const negativeZoneFloor = hasNegativeZone ? Math.min(Number(model.yDomain[0]), 0) : null;
 
+  useEffect(() => {
+    setPinnedTooltip(null);
+  }, [points, resolution]);
+
+  useEffect(() => {
+    if (!pinnedTooltip) return undefined;
+
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") {
+        setPinnedTooltip(null);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [pinnedTooltip]);
+
   if (!points.length) return null;
 
+  function handleChartClick(chartEvent) {
+    const point = resolveBalanceTooltipPointFromChartEvent(chartEvent);
+    if (!point?.key) return;
+
+    setPinnedTooltip((current) => {
+      if (current?.point?.key === point.key) {
+        return null;
+      }
+
+      return {
+        point,
+        position: resolvePinnedBalanceTooltipPosition(chartEvent, chartContentRef.current),
+      };
+    });
+  }
+
   return (
-    <ResponsiveContainer height="100%" width="100%">
-      <LineChart data={points} margin={{ top: 14, right: 8, left: -8, bottom: 2 }}>
-        {hasNegativeZone && negativeZoneFloor != null ? (
-          <>
-            <defs>
-              <pattern height="8" id={hatchId} patternTransform="rotate(45)" patternUnits="userSpaceOnUse" width="8">
-                <rect fill="rgba(220, 38, 38, 0.1)" height="8" width="8" x="0" y="0" />
-                <line stroke="rgba(220, 38, 38, 0.42)" strokeWidth="3" x1="0" x2="0" y1="0" y2="8" />
-              </pattern>
-            </defs>
-            <ReferenceArea fill={`url(#${hatchId})`} ifOverflow="extendDomain" y1={negativeZoneFloor} y2={0} />
-          </>
-        ) : null}
-        <CartesianGrid stroke="rgba(75, 85, 99, 0.16)" strokeDasharray="3 3" />
-        <XAxis
-          dataKey="key"
-          height={34}
-          interval={0}
-          minTickGap={8}
-          tick={{ fill: "#58616f", fontSize: 10 }}
-          tickFormatter={xTickFormatter}
-          ticks={axisTicks}
-        />
-        <YAxis
-          domain={model.yDomain}
-          tick={{ fill: "#58616f", fontSize: 10 }}
-          tickFormatter={formatCompactCurrency}
-          ticks={yAxisTicks}
-          width={54}
-        />
-        <Tooltip content={<BalanceChartTooltip resolution={resolution} />} />
-        {todayReferenceKey ? (
-          <ReferenceLine stroke="#0f766e" strokeDasharray="4 4" x={todayReferenceKey} />
-        ) : null}
-        <Line
-          activeDot={{ r: 4 }}
-          dataKey="estimatedBalance"
-          dot={false}
-          isAnimationActive={false}
-          name="Saldo real conciliado"
-          stroke="#111827"
-          strokeWidth={3}
-          type="linear"
-        />
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="mobile-chart-inner" ref={chartContentRef}>
+      <ResponsiveContainer height="100%" width="100%">
+        <LineChart data={points} margin={{ top: 14, right: 8, left: -8, bottom: 2 }} onClick={handleChartClick}>
+          {hasNegativeZone && negativeZoneFloor != null ? (
+            <>
+              <defs>
+                <pattern height="8" id={hatchId} patternTransform="rotate(45)" patternUnits="userSpaceOnUse" width="8">
+                  <rect fill="rgba(220, 38, 38, 0.1)" height="8" width="8" x="0" y="0" />
+                  <line stroke="rgba(220, 38, 38, 0.42)" strokeWidth="3" x1="0" x2="0" y1="0" y2="8" />
+                </pattern>
+              </defs>
+              <ReferenceArea fill={`url(#${hatchId})`} ifOverflow="extendDomain" y1={negativeZoneFloor} y2={0} />
+            </>
+          ) : null}
+          <CartesianGrid stroke="rgba(75, 85, 99, 0.16)" strokeDasharray="3 3" />
+          <XAxis
+            dataKey="key"
+            height={34}
+            interval={0}
+            minTickGap={8}
+            tick={{ fill: "#58616f", fontSize: 10 }}
+            tickFormatter={xTickFormatter}
+            ticks={axisTicks}
+          />
+          <YAxis
+            domain={model.yDomain}
+            tick={{ fill: "#58616f", fontSize: 10 }}
+            tickFormatter={formatCompactCurrency}
+            ticks={yAxisTicks}
+            width={54}
+          />
+          {pinnedTooltip ? null : <Tooltip content={<BalanceChartTooltip resolution={resolution} />} />}
+          {todayReferenceKey ? (
+            <ReferenceLine stroke="#0f766e" strokeDasharray="4 4" x={todayReferenceKey} />
+          ) : null}
+          {pinnedTooltip?.point?.key ? (
+            <ReferenceLine stroke="#0f766e" strokeDasharray="2 5" x={pinnedTooltip.point.key} />
+          ) : null}
+          <Line
+            activeDot={{ r: 4 }}
+            dataKey="estimatedBalance"
+            dot={false}
+            isAnimationActive={false}
+            name="Saldo real conciliado"
+            stroke="#111827"
+            strokeWidth={3}
+            type="linear"
+          />
+        </LineChart>
+      </ResponsiveContainer>
+      <BalancePinnedTooltip
+        onClose={() => setPinnedTooltip(null)}
+        point={pinnedTooltip?.point}
+        position={pinnedTooltip?.position}
+      />
+    </div>
   );
 }
 
