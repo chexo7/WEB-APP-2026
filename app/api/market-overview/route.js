@@ -1,26 +1,30 @@
-const HALF_HOUR_IN_SECONDS = 60 * 30;
+const MARKET_REFRESH_SECONDS = 60 * 5;
+const PROVIDER_TIMEOUT_MS = 8000;
 const MINDICADOR_API_ROOT = "https://mindicador.cl/api";
 const COINBASE_API_ROOT = "https://api.coinbase.com/v2";
 const COINBASE_EXCHANGE_API_ROOT = "https://api.exchange.coinbase.com";
+const YAHOO_FINANCE_CHART_API_ROOT = "https://query1.finance.yahoo.com/v8/finance/chart";
 const FRED_GRAPH_API_ROOT = "https://fred.stlouisfed.org/graph/fredgraph.csv";
-const FRED_OIL_SERIES = {
+const OIL_SERIES = {
   brent: {
     key: "brent",
     label: "Brent",
-    seriesId: "DCOILBRENTEU",
+    yahooSymbol: "BZ=F",
+    fredSeriesId: "DCOILBRENTEU",
     color: "#9a5b1f",
   },
   wti: {
     key: "wti",
     label: "WTI",
-    seriesId: "DCOILWTICO",
+    yahooSymbol: "CL=F",
+    fredSeriesId: "DCOILWTICO",
     color: "#24588f",
   },
 };
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const revalidate = 1800;
+export const revalidate = 300;
 
 export async function GET() {
   const warnings = [];
@@ -31,16 +35,16 @@ export async function GET() {
     ufSeriesResult,
     bitcoinSpotResult,
     bitcoinCandlesResult,
-    brentSeriesResult,
-    wtiSeriesResult,
+    brentIntradayResult,
+    wtiIntradayResult,
   ] = await Promise.allSettled([
     fetchJson(MINDICADOR_API_ROOT),
     fetchJson(`${MINDICADOR_API_ROOT}/dolar`),
     fetchJson(`${MINDICADOR_API_ROOT}/uf`),
     fetchJson(`${COINBASE_API_ROOT}/prices/BTC-USD/spot`),
     fetchJson(`${COINBASE_EXCHANGE_API_ROOT}/products/BTC-USD/candles?granularity=86400`),
-    fetchText(buildFredSeriesUrl(FRED_OIL_SERIES.brent.seriesId)),
-    fetchText(buildFredSeriesUrl(FRED_OIL_SERIES.wti.seriesId)),
+    fetchJson(buildYahooChartUrl(OIL_SERIES.brent.yahooSymbol)),
+    fetchJson(buildYahooChartUrl(OIL_SERIES.wti.yahooSymbol)),
   ]);
 
   const mindicadorSummary = unwrapSettledValue(mindicadorSummaryResult, "Mindicador resumen", warnings);
@@ -48,8 +52,8 @@ export async function GET() {
   const ufSeriesPayload = unwrapSettledValue(ufSeriesResult, "Mindicador UF", warnings);
   const bitcoinSpotPayload = unwrapSettledValue(bitcoinSpotResult, "Coinbase Bitcoin spot", warnings);
   const bitcoinCandlesPayload = unwrapSettledValue(bitcoinCandlesResult, "Coinbase Bitcoin velas", warnings);
-  const brentSeriesCsv = unwrapSettledValue(brentSeriesResult, "FRED Brent", warnings);
-  const wtiSeriesCsv = unwrapSettledValue(wtiSeriesResult, "FRED WTI", warnings);
+  const brentIntradayPayload = unwrapSettledValue(brentIntradayResult, "Yahoo Finance Brent intradia", warnings);
+  const wtiIntradayPayload = unwrapSettledValue(wtiIntradayResult, "Yahoo Finance WTI intradia", warnings);
 
   const usdClpItem = buildMindicadorMetric({
     id: "usd-clp",
@@ -81,13 +85,38 @@ export async function GET() {
     ];
   }
 
-  const oilItem = buildFredOilMetric({
+  let brentSeriesCsv = null;
+  let wtiSeriesCsv = null;
+  let oilItem = buildOilMetric({
     id: "oil",
     label: "Petroleo",
-    source: "FRED / EIA",
+    intradaySource: "Yahoo Finance",
+    fallbackSource: "FRED / EIA",
+    brentIntradayPayload,
+    wtiIntradayPayload,
     brentCsv: brentSeriesCsv,
     wtiCsv: wtiSeriesCsv,
   });
+
+  if (!hasCompleteIntradayOilMetric(oilItem)) {
+    const [brentSeriesResult, wtiSeriesResult] = await Promise.allSettled([
+      fetchText(buildFredSeriesUrl(OIL_SERIES.brent.fredSeriesId)),
+      fetchText(buildFredSeriesUrl(OIL_SERIES.wti.fredSeriesId)),
+    ]);
+
+    brentSeriesCsv = unwrapSettledValue(brentSeriesResult, "FRED Brent", warnings);
+    wtiSeriesCsv = unwrapSettledValue(wtiSeriesResult, "FRED WTI", warnings);
+    oilItem = buildOilMetric({
+      id: "oil",
+      label: "Petroleo",
+      intradaySource: "Yahoo Finance",
+      fallbackSource: "FRED / EIA",
+      brentIntradayPayload,
+      wtiIntradayPayload,
+      brentCsv: brentSeriesCsv,
+      wtiCsv: wtiSeriesCsv,
+    });
+  }
 
   const bitcoinItem = buildCoinbaseBitcoinMetric({
     id: "bitcoin-usd",
@@ -113,8 +142,8 @@ export async function GET() {
     ensureMetric(oilItem, {
       id: "oil",
       label: "Petroleo",
-      source: "FRED / EIA",
-      message: "No pudimos obtener referencias recientes de Brent y WTI desde la nueva fuente publica.",
+      source: "Yahoo Finance / FRED",
+      message: "No pudimos obtener referencias recientes de Brent y WTI desde las fuentes publicas.",
     }),
     ensureMetric(bitcoinItem, {
       id: "bitcoin-usd",
@@ -139,7 +168,7 @@ export async function GET() {
     {
       status: items.length ? 200 : 503,
       headers: {
-        "Cache-Control": `s-maxage=${HALF_HOUR_IN_SECONDS}, stale-while-revalidate=300`,
+        "Cache-Control": `s-maxage=${MARKET_REFRESH_SECONDS}, stale-while-revalidate=60`,
       },
     },
   );
@@ -151,8 +180,9 @@ async function fetchJson(url) {
       Accept: "application/json",
       "User-Agent": "web-app-2026",
     },
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     next: {
-      revalidate: HALF_HOUR_IN_SECONDS,
+      revalidate: MARKET_REFRESH_SECONDS,
     },
   });
 
@@ -171,8 +201,9 @@ async function fetchText(url) {
       Accept: "text/csv, text/plain;q=0.9, */*;q=0.8",
       "User-Agent": "web-app-2026",
     },
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
     next: {
-      revalidate: HALF_HOUR_IN_SECONDS,
+      revalidate: MARKET_REFRESH_SECONDS,
     },
   });
 
@@ -188,6 +219,7 @@ function assertProviderPayload(sourceLabel, payload) {
     payload?.Note ||
     payload?.Information ||
     payload?.["Error Message"] ||
+    payload?.chart?.error?.description ||
     payload?.message ||
     payload?.error;
 
@@ -264,15 +296,23 @@ function buildCoinbaseBitcoinMetric({ id, label, source, spotPayload, candlesPay
   });
 }
 
-function buildFredOilMetric({ id, label, source, brentCsv, wtiCsv }) {
-  const quotes = [FRED_OIL_SERIES.brent, FRED_OIL_SERIES.wti]
-    .map((seriesConfig) => buildOilQuoteCard(seriesConfig, seriesConfig.key === "brent" ? brentCsv : wtiCsv))
+function buildOilMetric({ id, label, intradaySource, fallbackSource, brentIntradayPayload, wtiIntradayPayload, brentCsv, wtiCsv }) {
+  const quoteInputs = [
+    { config: OIL_SERIES.brent, intradayPayload: brentIntradayPayload, fallbackCsv: brentCsv },
+    { config: OIL_SERIES.wti, intradayPayload: wtiIntradayPayload, fallbackCsv: wtiCsv },
+  ];
+  const quotes = quoteInputs
+    .map(({ config, intradayPayload, fallbackCsv }) => {
+      return buildYahooOilQuoteCard(config, intradayPayload, intradaySource) ?? buildFredOilQuoteCard(config, fallbackCsv, fallbackSource);
+    })
     .filter(Boolean);
 
   if (!quotes.length) {
     return null;
   }
 
+  const hasIntradayQuotes = quotes.some((quote) => quote.isIntraday);
+  const hasFallbackQuotes = quotes.some((quote) => !quote.isIntraday);
   const averageCurrentValue = roundToDecimals(quotes.reduce((total, quote) => total + quote.value, 0) / quotes.length, 2);
   const averagePreviousValue = roundToDecimals(quotes.reduce((total, quote) => total + quote.previousValue, 0) / quotes.length, 2);
   const aggregateChangeAbs = roundToDecimals(averageCurrentValue - averagePreviousValue, 2);
@@ -288,11 +328,17 @@ function buildFredOilMetric({ id, label, source, brentCsv, wtiCsv }) {
   const chartSeries = mergeMultiSeries(quotes);
   const spreadValue =
     quotes.length === 2 ? roundToDecimals(quotes[0].value - quotes[1].value, 2) : null;
+  const rangeFacts = quotes
+    .filter((quote) => quote.isIntraday && quote.sessionLow != null && quote.sessionHigh != null)
+    .map((quote) => ({
+      label: `Rango ${quote.label}`,
+      value: `${formatUsdValue(quote.sessionLow, 2)} a ${formatUsdValue(quote.sessionHigh, 2)}`,
+    }));
 
   return {
     id,
     label,
-    source,
+    source: hasIntradayQuotes && hasFallbackQuotes ? `${intradaySource} / ${fallbackSource}` : hasIntradayQuotes ? intradaySource : fallbackSource,
     value: averageCurrentValue,
     displayValue: formatUsdValue(averageCurrentValue, 2),
     displayDecimals: 2,
@@ -302,11 +348,16 @@ function buildFredOilMetric({ id, label, source, brentCsv, wtiCsv }) {
     changePct: aggregateChangePct,
     updatedAt: normalizeDateTime(updatedAt) ?? new Date().toISOString(),
     series: chartSeries,
-    facts: spreadValue == null ? [] : [{ label: "Spread Brent-WTI", value: formatUsdValue(spreadValue, 2) }],
+    facts: [
+      ...(spreadValue == null ? [] : [{ label: "Spread Brent-WTI", value: formatUsdValue(spreadValue, 2) }]),
+      ...rangeFacts,
+    ],
     description:
-      quotes.length === 2
-        ? "Brent y WTI quedaron consolidados en un solo panel para seguir el petroleo sin cambiar de slide."
-        : `Solo pudimos actualizar ${quotes[0].label} desde la fuente publica en este momento.`,
+      hasIntradayQuotes && quotes.length === 2 && !hasFallbackQuotes
+        ? "Serie intradia de 5 minutos para seguir la variacion de la sesion en Brent y WTI."
+        : hasIntradayQuotes
+          ? "Parte del panel usa datos intradia y parte quedo con respaldo diario."
+          : "Respaldo diario de FRED/EIA mientras la fuente intradia no responde.",
     quoteCards: quotes,
     chartKeys: quotes.map(({ key, label, color }) => ({ key, label, color })),
     showAggregateChange: false,
@@ -402,7 +453,52 @@ function normalizeCoinbaseCandles(payload) {
     .sort((left, right) => left.date.localeCompare(right.date));
 }
 
-function buildOilQuoteCard(seriesConfig, csvPayload) {
+function buildYahooOilQuoteCard(seriesConfig, payload, source) {
+  const normalized = normalizeYahooChartSeries(payload);
+  const chartSeries = normalized.series.slice(-288);
+  const latestPoint = chartSeries[chartSeries.length - 1];
+  const currentValue = normalized.currentValue ?? latestPoint?.value ?? null;
+  const previousValue = normalized.previousClose ?? normalized.sessionOpen ?? chartSeries[0]?.value ?? currentValue;
+
+  if (currentValue == null || previousValue == null) {
+    return null;
+  }
+
+  const changeAbs = roundToDecimals(currentValue - previousValue, 2);
+  const changePct = previousValue ? roundToDecimals(((currentValue - previousValue) / previousValue) * 100, 2) : 0;
+  const updatedAt = normalized.updatedAt ?? latestPoint?.date ?? new Date().toISOString();
+  const series = mergeCurrentQuoteIntoSeries(chartSeries, currentValue, updatedAt);
+
+  return {
+    key: seriesConfig.key,
+    label: seriesConfig.label,
+    color: seriesConfig.color,
+    value: roundToDecimals(currentValue, 2),
+    previousValue: roundToDecimals(previousValue, 2),
+    displayValue: formatUsdValue(currentValue, 2),
+    displayDecimals: 2,
+    unitLabel: "USD",
+    direction: resolveDirection(changeAbs),
+    changeAbs,
+    changePct,
+    updatedAt,
+    source,
+    series,
+    sessionLow: normalized.sessionLow,
+    sessionHigh: normalized.sessionHigh,
+    isIntraday: true,
+  };
+}
+
+function hasCompleteIntradayOilMetric(metric) {
+  return (
+    Array.isArray(metric?.quoteCards) &&
+    metric.quoteCards.length === Object.keys(OIL_SERIES).length &&
+    metric.quoteCards.every((quote) => quote.isIntraday)
+  );
+}
+
+function buildFredOilQuoteCard(seriesConfig, csvPayload, source) {
   const series = normalizeFredCsvSeries(csvPayload).slice(-14);
   const latestPoint = series[series.length - 1];
   const comparisonPoint = series[series.length - 2] ?? latestPoint;
@@ -429,8 +525,60 @@ function buildOilQuoteCard(seriesConfig, csvPayload) {
     changeAbs,
     changePct,
     updatedAt: latestPoint.date,
+    source,
+    series,
+    sessionLow: null,
+    sessionHigh: null,
+    isIntraday: false,
+  };
+}
+
+function normalizeYahooChartSeries(payload) {
+  const result = payload?.chart?.result?.[0];
+  const timestamps = Array.isArray(result?.timestamp) ? result.timestamp : [];
+  const quote = result?.indicators?.quote?.[0] ?? {};
+  const series = timestamps
+    .map((timestamp, index) => ({
+      date: unixTimestampToIso(timestamp),
+      value: toMarketQuoteNumber(quote.close?.[index]),
+    }))
+    .filter(isValidSeriesPoint)
+    .sort((left, right) => left.date.localeCompare(right.date));
+  const highValues = normalizeNumericArray(quote.high);
+  const lowValues = normalizeNumericArray(quote.low);
+  const fallbackValues = series.map((point) => point.value);
+  const meta = result?.meta ?? {};
+  const updatedAt = unixTimestampToIso(meta.regularMarketTime) || series[series.length - 1]?.date || "";
+
+  return {
+    currentValue: toMarketQuoteNumber(meta.regularMarketPrice) ?? series[series.length - 1]?.value ?? null,
+    previousClose: toMarketQuoteNumber(meta.chartPreviousClose) ?? toMarketQuoteNumber(meta.previousClose),
+    sessionOpen: series[0]?.value ?? null,
+    sessionHigh: highValues.length ? Math.max(...highValues) : fallbackValues.length ? Math.max(...fallbackValues) : null,
+    sessionLow: lowValues.length ? Math.min(...lowValues) : fallbackValues.length ? Math.min(...fallbackValues) : null,
+    updatedAt,
     series,
   };
+}
+
+function normalizeNumericArray(values) {
+  return (Array.isArray(values) ? values : []).map(toMarketQuoteNumber).filter((value) => value != null);
+}
+
+function mergeCurrentQuoteIntoSeries(series, currentValue, updatedAt) {
+  const normalizedUpdatedAt = normalizeDateTime(updatedAt);
+
+  if (!normalizedUpdatedAt || currentValue == null) {
+    return series;
+  }
+
+  return [
+    ...series.filter((point) => normalizeDateTime(point.date) !== normalizedUpdatedAt),
+    {
+      date: normalizedUpdatedAt,
+      value: roundToDecimals(currentValue, 2),
+    },
+  ].sort((left, right) => left.date.localeCompare(right.date));
 }
 
 function normalizeFredCsvSeries(csvText) {
@@ -476,6 +624,10 @@ function buildFredSeriesUrl(seriesId) {
   return `${FRED_GRAPH_API_ROOT}?id=${encodeURIComponent(seriesId)}`;
 }
 
+function buildYahooChartUrl(symbol) {
+  return `${YAHOO_FINANCE_CHART_API_ROOT}/${encodeURIComponent(symbol)}?range=1d&interval=5m`;
+}
+
 function formatMetricValue(value, unitLabel, decimals, formatStyle) {
   if (formatStyle === "usd") {
     return formatUsdValue(value, decimals);
@@ -512,6 +664,16 @@ function unixTimestampToDateKey(value) {
   return localDateKey(new Date(numericValue * 1000));
 }
 
+function unixTimestampToIso(value) {
+  const numericValue = Number(value);
+
+  if (!Number.isFinite(numericValue)) {
+    return "";
+  }
+
+  return new Date(numericValue * 1000).toISOString();
+}
+
 function roundToDecimals(value, decimals = 2) {
   const factor = 10 ** decimals;
   return Math.round((Number(value) || 0) * factor) / factor;
@@ -520,6 +682,11 @@ function roundToDecimals(value, decimals = 2) {
 function toFiniteNumber(value) {
   const numericValue = Number(value);
   return Number.isFinite(numericValue) ? numericValue : null;
+}
+
+function toMarketQuoteNumber(value) {
+  const numericValue = toFiniteNumber(value);
+  return numericValue === 0 ? null : numericValue;
 }
 
 function isValidSeriesPoint(point) {

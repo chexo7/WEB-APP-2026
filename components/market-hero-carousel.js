@@ -566,10 +566,18 @@ function formatUpdatedAt(value) {
 function formatShortDate(value) {
   if (!value) return "";
 
+  const rawValue = String(value ?? "").trim();
   const candidate = toDisplayDate(value);
 
   if (!candidate) {
     return value;
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(rawValue)) {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    }).format(candidate);
   }
 
   return formatUsDate(candidate);
