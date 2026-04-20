@@ -1,7 +1,7 @@
 "use client";
 
 import { startTransition, useDeferredValue, useEffect, useId, useMemo, useRef, useState } from "react";
-import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Tabs as MantineTabs, Text } from "@mantine/core";
+import { Badge as MantineBadge, Button as MantineButton, Group, Loader, Paper, Portal, Tabs as MantineTabs, Text } from "@mantine/core";
 import {
   addDays as addCalendarDays,
   addMonths as addCalendarMonths,
@@ -1412,8 +1412,17 @@ export default function HomePage() {
   const showCashflowTooltip = (event, row, date) => {
     const details = row.details?.[date.key] ?? buildEmptyCashflowDetails(row.label, date.key);
     const rect = event.currentTarget.getBoundingClientRect();
-    const left = Math.min(rect.left, Math.max(16, window.innerWidth - 320));
-    const top = Math.min(rect.bottom + 10, window.innerHeight - 180);
+    const viewportMargin = 12;
+    const tooltipWidth = 300;
+    const estimatedTooltipHeight = Math.min(340, 96 + details.lines.length * 24);
+    const maxLeft = Math.max(viewportMargin, window.innerWidth - tooltipWidth - viewportMargin);
+    const preferredLeft = rect.left + rect.width / 2 - tooltipWidth / 2;
+    const preferredTop = rect.bottom + 10;
+    const left = Math.min(Math.max(viewportMargin, preferredLeft), maxLeft);
+    const top =
+      preferredTop + estimatedTooltipHeight <= window.innerHeight - viewportMargin
+        ? preferredTop
+        : Math.max(viewportMargin, rect.top - estimatedTooltipHeight - 10);
 
     setCashflowTooltip({
       date: date.key,
@@ -3075,20 +3084,22 @@ export default function HomePage() {
               </div>
 
               {cashflowTooltip ? (
-                <div className="cashflow-tooltip" style={{ left: `${cashflowTooltip.left}px`, top: `${cashflowTooltip.top}px` }}>
-                  <strong>{cashflowTooltip.title}</strong>
-                  <span>{cashflowTooltip.dateLabel}</span>
-                  {cashflowTooltip.lines.length ? (
-                    <div className="cashflow-tooltip-lines">
-                      {cashflowTooltip.lines.map((line, index) => (
-                        <p key={`${cashflowTooltip.title}-${cashflowTooltip.date}-${index}`}>{line}</p>
-                      ))}
-                    </div>
-                  ) : (
-                    <p>Sin movimientos registrados.</p>
-                  )}
-                  <p className="cashflow-tooltip-total">Total: {formatCashflowAmount(cashflowTooltip.total)}</p>
-                </div>
+                <Portal>
+                  <div className="cashflow-tooltip" style={{ left: `${cashflowTooltip.left}px`, top: `${cashflowTooltip.top}px` }}>
+                    <strong>{cashflowTooltip.title}</strong>
+                    <span>{cashflowTooltip.dateLabel}</span>
+                    {cashflowTooltip.lines.length ? (
+                      <div className="cashflow-tooltip-lines">
+                        {cashflowTooltip.lines.map((line, index) => (
+                          <p key={`${cashflowTooltip.title}-${cashflowTooltip.date}-${index}`}>{line}</p>
+                        ))}
+                      </div>
+                    ) : (
+                      <p>Sin movimientos registrados.</p>
+                    )}
+                    <p className="cashflow-tooltip-total">Total: {formatCashflowAmount(cashflowTooltip.total)}</p>
+                  </div>
+                </Portal>
               ) : null}
             </section>
           ) : null}

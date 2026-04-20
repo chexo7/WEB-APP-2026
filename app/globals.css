@@ -2683,6 +2683,8 @@ button {
   position: fixed;
   z-index: 20;
   width: min(300px, calc(100vw - 24px));
+  max-height: calc(100vh - 24px);
+  overflow-y: auto;
   padding: 0.85rem 0.95rem;
   border: 1px solid rgba(74, 99, 129, 0.28);
   border-radius: 14px;
