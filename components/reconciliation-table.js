@@ -6,10 +6,10 @@ import { flexRender, getCoreRowModel, useReactTable } from "@tanstack/react-tabl
 
 function getSortIndicator(currentSort, key) {
   if (currentSort.key !== key) {
-    return "↕";
+    return "<->";
   }
 
-  return currentSort.direction === "asc" ? "▲" : "▼";
+  return currentSort.direction === "asc" ? "^" : "v";
 }
 
 function nextSortState(currentSort, key) {

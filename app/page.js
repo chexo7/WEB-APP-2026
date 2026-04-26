@@ -55,7 +55,7 @@ const tabs = [
 const expenseFrequencies = ["Unico", "Mensual", "Semanal", "Bi-semanal"];
 const expenseCurrencies = [
   { value: "USD", label: "USD - Dolar Estadounidense" },
-  { value: "CLP", label: "CLP - Peso Chileno" },
+  { value: "CLP", label: "CLP - Peso Chileno (convierte a USD antes)", disabled: true },
 ];
 const incomeFrequencies = ["Mensual", "Semanal", "Bi-semanal", "Unico"];
 const incomeCurrencies = expenseCurrencies;
@@ -951,16 +951,21 @@ export default function HomePage() {
       return;
     }
 
-    const resolvedAdjustmentAmount = isBalanceSnapshotAdjustmentCustomized
-      ? parseEditableAmount(balanceSnapshotForm.adjustmentAmount)
-      : roundCurrencyValue(balanceSnapshotOverview.form.suggestedAdjustment);
+    let nextAdjustmentAmount = 0;
 
-    if (resolvedAdjustmentAmount == null) {
-      setDataError("El cuadre a aplicar debe ser un numero valido.");
-      return;
+    if (applyLinkedAdjustment) {
+      const resolvedAdjustmentAmount = isBalanceSnapshotAdjustmentCustomized
+        ? parseEditableAmount(balanceSnapshotForm.adjustmentAmount)
+        : roundCurrencyValue(balanceSnapshotOverview.form.suggestedAdjustment);
+
+      if (resolvedAdjustmentAmount == null) {
+        setDataError("El cuadre a aplicar debe ser un numero valido.");
+        return;
+      }
+
+      nextAdjustmentAmount = roundCurrencyValue(resolvedAdjustmentAmount);
     }
 
-    const nextAdjustmentAmount = applyLinkedAdjustment ? roundCurrencyValue(resolvedAdjustmentAmount) : 0;
     const snapshotId = editingBalanceSnapshotId || localId("balanceSnapshot");
 
     setDraft((current) => {
@@ -1913,7 +1918,7 @@ export default function HomePage() {
                     Moneda:
                     <select name="currency" onChange={(e) => setExpenseForm((c) => ({ ...c, currency: e.target.value }))} value={expenseForm.currency}>
                       {expenseCurrencies.map((currencyOption) => (
-                        <option key={currencyOption.value} value={currencyOption.value}>
+                        <option disabled={currencyOption.disabled} key={currencyOption.value} value={currencyOption.value}>
                           {currencyOption.label}
                         </option>
                       ))}
@@ -2119,7 +2124,7 @@ export default function HomePage() {
                     Moneda:
                     <select name="currency" onChange={(e) => setBudgetForm((c) => ({ ...c, currency: e.target.value }))} value={budgetForm.currency}>
                       {expenseCurrencies.map((currencyOption) => (
-                        <option key={currencyOption.value} value={currencyOption.value}>
+                        <option disabled={currencyOption.disabled} key={currencyOption.value} value={currencyOption.value}>
                           {currencyOption.label}
                         </option>
                       ))}
@@ -2459,7 +2464,7 @@ export default function HomePage() {
                     Moneda:
                     <select name="currency" onChange={(e) => setIncomeForm((c) => ({ ...c, currency: e.target.value }))} value={incomeForm.currency}>
                       {incomeCurrencies.map((currencyOption) => (
-                        <option key={currencyOption.value} value={currencyOption.value}>
+                        <option disabled={currencyOption.disabled} key={currencyOption.value} value={currencyOption.value}>
                           {currencyOption.label}
                         </option>
                       ))}
@@ -5071,7 +5076,9 @@ function buildSummaryIndicatorsModel({ expenses, incomes, adjustments, currentDa
   let variableExpensesMonthToDate = 0;
 
   for (const expense of expenses) {
-    const amount = Number(expense.amount) || 0;
+    const amount = toUsdAmount(expense);
+    if (!amount) continue;
+
     const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
     const group = getExpenseCategoryGroup(category);
     const occurrenceDates = buildRecurringDates({
@@ -5111,7 +5118,9 @@ function buildSummaryIndicatorsModel({ expenses, incomes, adjustments, currentDa
   }
 
   for (const income of incomes) {
-    const amount = Number(income.amount) || 0;
+    const amount = toUsdAmount(income);
+    if (!amount) continue;
+
     const occurrences = buildIncomeOccurrenceEntries({
       income,
       displayEnd: projectionEndKey,
@@ -5336,6 +5345,9 @@ function buildBudgetMonthlyOverviewModel({ budgets, expenses, incomes = [], curr
   }
 
   for (const expense of expenses) {
+    const amount = toUsdAmount(expense);
+    if (!amount) continue;
+
     const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
     const occurrenceDates = buildRecurringDates({
       startDate: expense.movementDate ?? expense.date,
@@ -5348,7 +5360,6 @@ function buildBudgetMonthlyOverviewModel({ budgets, expenses, incomes = [], curr
     for (const date of occurrenceDates) {
       if (String(date).slice(0, 7) !== resolvedMonthKey) continue;
 
-      const amount = Number(expense.amount) || 0;
       actualByCategory[category] += amount;
       movementCountByCategory[category] += 1;
       totalActual += amount;
@@ -5356,6 +5367,9 @@ function buildBudgetMonthlyOverviewModel({ budgets, expenses, incomes = [], curr
   }
 
   for (const income of incomes) {
+    const amount = toUsdAmount(income);
+    if (!amount) continue;
+
     const occurrences = buildIncomeOccurrenceEntries({
       income,
       displayEnd: monthEndKey,
@@ -5364,8 +5378,6 @@ function buildBudgetMonthlyOverviewModel({ budgets, expenses, incomes = [], curr
     for (const occurrence of occurrences) {
       const date = occurrence.date;
       if (String(date).slice(0, 7) !== resolvedMonthKey) continue;
-
-      const amount = Number(income.amount) || 0;
 
       if (income.isReimbursement) {
         const category = expenseCategories.includes(String(income.reimbursementCategory ?? "")) ? income.reimbursementCategory : "Otros";
@@ -5446,6 +5458,7 @@ function resolveIncomeSharePercent(value, totalIncome) {
 
 function buildBudgetPeriods({ budget, displayEnd }) {
   const normalizedBudget = normalizeBudgetDates(budget);
+  const plannedAmount = toUsdAmount(normalizedBudget);
   const periods = buildRecurringDates({
     startDate: normalizedBudget.startDate,
     frequency: normalizedBudget.frequency,
@@ -5459,7 +5472,7 @@ function buildBudgetPeriods({ budget, displayEnd }) {
     startKey,
     endKey: getBudgetPeriodEndKey({ budget: normalizedBudget, startKey, displayEnd }),
     monthKey: String(startKey).slice(0, 7),
-    plannedAmount: Number(normalizedBudget.amount) || 0,
+    plannedAmount,
     actualAmount: 0,
     actualToDateAmount: 0,
   }));
@@ -5838,6 +5851,9 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
   };
 
   for (const expense of expenses) {
+    const expenseAmount = toUsdAmount(expense);
+    if (!expenseAmount) continue;
+
     const occurrenceDates = buildRecurringDates({
       startDate: expense.movementDate ?? expense.date,
       frequency: expense.frequency,
@@ -5847,7 +5863,7 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
     });
 
     for (const date of occurrenceDates) {
-      const amount = -(Number(expense.amount) || 0);
+      const amount = -expenseAmount;
       const category = expenseCategories.includes(String(expense.category ?? "")) ? expense.category : "Otros";
       const line = formatCashflowLine({
         amount,
@@ -5860,6 +5876,9 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
   }
 
   for (const income of incomes) {
+    const amount = toUsdAmount(income);
+    if (!amount) continue;
+
     const occurrenceDates = buildIncomeOccurrenceEntries({
       income,
       displayEnd,
@@ -5867,7 +5886,6 @@ function buildCashflowModel({ expenses, incomes, adjustments, currentDateKey, an
 
     for (const occurrence of occurrenceDates) {
       const date = occurrence.date;
-      const amount = Number(income.amount) || 0;
       const scheduleLabel = occurrence.isAdjusted ? ` [ajuste ${occurrence.originalDate} -> ${occurrence.date}]` : "";
 
       if (income.isReimbursement) {
@@ -6591,8 +6609,9 @@ function labelVersion(version) {
   return `${formatDateLabel(version.snapshotDate)} | ${formatDateValue(timestamp, "hh:mm a")}`;
 }
 
-function toUsdAmount(expense) {
-  return Number(expense.amount) || 0;
+function toUsdAmount(entry) {
+  const currency = String(entry?.currency ?? "USD").trim().toUpperCase() || "USD";
+  return currency === "USD" ? Number(entry?.amount) || 0 : 0;
 }
 
 function formatDateLabel(value) {
