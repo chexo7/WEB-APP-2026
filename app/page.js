@@ -145,6 +145,17 @@ export default function HomePage() {
   const expenseNameWarning = useMemo(() => getFirebaseTextWarning(expenseForm.name), [expenseForm.name]);
   const budgetNameWarning = useMemo(() => getFirebaseTextWarning(budgetForm.name), [budgetForm.name]);
   const incomeNameWarning = useMemo(() => getFirebaseTextWarning(incomeForm.name), [incomeForm.name]);
+  const incomeScheduleOverridesForForm = useMemo(
+    () => (editingIncomeId ? draft.incomes?.[editingIncomeId]?.scheduleOverrides ?? {} : {}),
+    [draft.incomes, editingIncomeId],
+  );
+  const incomeEndDateOverrideConflict = useMemo(
+    () => getIncomeEndDateOverrideConflict({
+      ...incomeForm,
+      scheduleOverrides: incomeScheduleOverridesForForm,
+    }),
+    [incomeForm, incomeScheduleOverridesForForm],
+  );
   const deferredExpenseSearchTerm = useDeferredValue(expenseSearchTerm);
   const deferredIncomeSearchTerm = useDeferredValue(incomeSearchTerm);
   const displayedTab = useDeferredValue(activeTab);
@@ -837,6 +848,17 @@ export default function HomePage() {
 
     if (error) {
       setDataError(error);
+      return;
+    }
+
+    const preservedScheduleOverrides = editingIncomeId ? draft.incomes?.[editingIncomeId]?.scheduleOverrides ?? {} : {};
+    const overrideConflict = getIncomeEndDateOverrideConflict({
+      ...nextIncome,
+      scheduleOverrides: preservedScheduleOverrides,
+    });
+
+    if (overrideConflict) {
+      setDataError(buildIncomeEndDateOverrideConflictMessage(overrideConflict));
       return;
     }
 
@@ -2466,6 +2488,11 @@ export default function HomePage() {
                       type="date"
                       value={incomeForm.endDate}
                     />
+                    {incomeEndDateOverrideConflict ? (
+                      <span className="field-warning">
+                        {buildIncomeEndDateOverrideConflictMessage(incomeEndDateOverrideConflict)}
+                      </span>
+                    ) : null}
                   </label>
                 </div>
 
@@ -4336,6 +4363,57 @@ function sanitizeIncomeScheduleOverrides(overrides) {
   );
 }
 
+function getIncomeOriginalScheduleEndDate(income) {
+  if (!income || income.isRecurringIndefinite) {
+    return "";
+  }
+
+  return String(income.endDate || income.startDate || "").trim();
+}
+
+function getIncomeEndDateOverrideConflict(income) {
+  const endDate = !income?.isRecurringIndefinite ? String(income?.endDate ?? "").trim() : "";
+
+  if (!endDate || !isValidDate(parseDateKey(endDate))) {
+    return null;
+  }
+
+  const conflicts = Object.entries(sanitizeIncomeScheduleOverrides(income?.scheduleOverrides))
+    .filter(([, value]) => Boolean(value?.isActive))
+    .filter(([originalDate, value]) => value.adjustedDate <= endDate && originalDate > endDate)
+    .filter(([originalDate]) => isIncomeOriginalOccurrenceDate(income, originalDate))
+    .map(([originalDate, value]) => ({
+      adjustedDate: value.adjustedDate,
+      endDate,
+      originalDate,
+    }))
+    .sort((left, right) => {
+      const adjustedResult = compareSortValues(left.adjustedDate, right.adjustedDate, "asc");
+      if (adjustedResult !== 0) return adjustedResult;
+      return compareSortValues(left.originalDate, right.originalDate, "asc");
+    });
+
+  return conflicts[0] ?? null;
+}
+
+function isIncomeOriginalOccurrenceDate(income, originalDate) {
+  if (!originalDate || !isValidDate(parseDateKey(originalDate))) {
+    return false;
+  }
+
+  return buildRecurringDates({
+    startDate: income?.startDate,
+    frequency: income?.frequency,
+    endDate: "",
+    isRecurringIndefinite: true,
+    displayEnd: originalDate,
+  }).includes(originalDate);
+}
+
+function buildIncomeEndDateOverrideConflictMessage(conflict) {
+  return `Conflicto con ajuste de pago: el pago original del ${formatDateLabel(conflict.originalDate)} fue movido al ${formatDateLabel(conflict.adjustedDate)}. Para incluirlo como ultimo ingreso, usa ${formatDateLabel(conflict.originalDate)} como fecha fin; con ${formatDateLabel(conflict.endDate)} queda fuera de la regla base.`;
+}
+
 function sortLabelsAlphabetically(items) {
   return [...items].sort((left, right) => left.localeCompare(right, "es", { sensitivity: "base" }));
 }
@@ -4903,14 +4981,20 @@ function buildIncomeOccurrenceEntries({ income, displayEnd }) {
   }
 
   const scheduleOverrides = sanitizeIncomeScheduleOverrides(income.scheduleOverrides);
-  const generationEnd = maxDateKey(displayEnd, ...Object.keys(scheduleOverrides));
+  const originalScheduleEndDate = getIncomeOriginalScheduleEndDate(income);
+  const overrideOriginalDatesForGeneration = Object.entries(scheduleOverrides)
+    .filter(([originalDate]) => !originalScheduleEndDate || originalDate <= originalScheduleEndDate)
+    .filter(([originalDate, value]) => originalDate <= displayEnd || value.adjustedDate <= displayEnd)
+    .map(([originalDate]) => originalDate);
+  const requestedGenerationEnd = maxDateKey(displayEnd, ...overrideOriginalDatesForGeneration);
+  const generationEnd = originalScheduleEndDate ? minDateKey(requestedGenerationEnd, originalScheduleEndDate) : requestedGenerationEnd;
   const occurrenceDates = buildRecurringDates({
     startDate: income.startDate,
     frequency: income.frequency,
-    endDate: income.endDate,
-    isRecurringIndefinite: income.isRecurringIndefinite,
+    endDate: "",
+    isRecurringIndefinite: true,
     displayEnd: generationEnd,
-  });
+  }).filter((originalDate) => !originalScheduleEndDate || originalDate <= originalScheduleEndDate);
 
   return occurrenceDates
     .map((originalDate) => {
